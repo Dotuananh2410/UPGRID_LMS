@@ -5,14 +5,15 @@ import useSWR from "swr";
 import { requestGas } from "@/utils/apiClient";
 import { Student, Teacher, Class } from "@/types/lms";
 import { useAuth } from "@/context/AuthContext";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect } from "react";
 import { 
   Users, UserCheck, BookOpen, UserPlus, 
   Plus, Calendar, Mail, Phone, Lock, 
-  Tag, Award, Loader2, AlertCircle, CheckCircle2 
+  Tag, Award, Loader2, AlertCircle, CheckCircle2, X 
 } from "lucide-react";
 
-export default function AdminPage() {
+function AdminPageContent() {
   const { user } = useAuth();
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<"overview" | "students" | "teachers" | "classes">("overview");
@@ -50,12 +51,55 @@ export default function AdminPage() {
   // Forms inputs
   const [stdForm, setStdForm] = useState({ fullName: "", email: "", password: "", parentEmail: "", parentPhone: "" });
   const [tchForm, setTchForm] = useState({ fullName: "", email: "", password: "" });
-  const [clsForm, setClsForm] = useState({ className: "", schedule: "", teacherId: "" });
+  const [clsForm, setClsForm] = useState({ className: "", schedule: "", teacherId: "", grade: "", level: "", subject: "", tuitionFee: "200000" });
   const [enrForm, setEnrForm] = useState({ classId: "", studentId: "" });
+
+  // Student Lifecycle States
+  const [lifecycleClassId, setLifecycleClassId] = useState("");
+  const [submittingStatusId, setSubmittingStatusId] = useState<string>("");
+  const [transferTargetClassId, setTransferTargetClassId] = useState<Record<string, string>>({}); // studentId -> targetClassId
+  const [showTransferSelect, setShowTransferSelect] = useState<Record<string, boolean>>({}); // studentId -> boolean
+
+  // SWR fetch class details for lifecycle
+  const { data: lifecycleClassDetails, mutate: mutateLifecycleDetails } = useSWR(
+    lifecycleClassId ? `getClassDetails/${lifecycleClassId}` : null,
+    () => requestGas<any>("getClassDetails", { method: "GET", body: { classId: lifecycleClassId } })
+  );
+
+  // Fetch class curriculum progress
+  const { data: curriculumProgress = [] } = useSWR(
+    lifecycleClassId ? `getClassProgress/${lifecycleClassId}` : null,
+    () => requestGas<any[]>("getClassProgress", { body: { classId: lifecycleClassId } })
+  );
+
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const classId = searchParams.get("classId");
+    if (classId) {
+      setActiveTab("classes");
+      setLifecycleClassId(classId);
+    }
+  }, [searchParams]);
 
   const showMessage = (type: "success" | "error", text: string) => {
     setMessage({ type, text });
     setTimeout(() => setMessage(null), 5000);
+  };
+
+  const handleUpdateStatus = async (studentId: string, classId: string, status: string, targetClassId?: string) => {
+    setSubmittingStatusId(`${studentId}_${status}`);
+    try {
+      await requestGas("updateStudentStatus", {
+        method: "POST",
+        body: { studentId, classId, status, targetClassId }
+      });
+      showMessage("success", `Cập nhật trạng thái học viên thành công!`);
+      mutateLifecycleDetails();
+    } catch (err: any) {
+      showMessage("error", err.message || "Lỗi cập nhật trạng thái");
+    } finally {
+      setSubmittingStatusId("");
+    }
   };
 
   // Add Student Handler
@@ -111,12 +155,25 @@ export default function AdminPage() {
         body: clsForm
       });
       showMessage("success", `Tạo lớp học thành công! ID: ${res.classId}`);
-      setClsForm({ className: "", schedule: "", teacherId: "" });
+      setClsForm({ className: "", schedule: "", teacherId: "", grade: "", level: "", subject: "", tuitionFee: "200000" });
       mutateCls();
     } catch (err: any) {
       showMessage("error", err.message || "Lỗi tạo lớp học");
     } finally {
       setSubmittingCls(false);
+    }
+  };
+
+  const handleRemoveStudent = async (studentId: string, classId: string) => {
+    try {
+      await requestGas("removeStudentFromClass", {
+        method: "POST",
+        body: { studentId, classId }
+      });
+      showMessage("success", `Đã xóa học viên khỏi lớp thành công!`);
+      mutateLifecycleDetails();
+    } catch (err: any) {
+      showMessage("error", err.message || "Lỗi xóa học viên");
     }
   };
 
@@ -171,7 +228,7 @@ export default function AdminPage() {
       )}
 
       {/* Tabs */}
-      <div className="flex border-b border-neutral-200 dark:border-neutral-800 space-x-2">
+      <div className="flex border-b border-neutral-200 dark:border-neutral-800 space-x-2 overflow-x-auto pb-1 scrollbar-none whitespace-nowrap">
         {(["overview", "students", "teachers", "classes"] as const).map((tab) => (
           <button
             key={tab}
@@ -331,7 +388,7 @@ export default function AdminPage() {
                 <h3 className="text-lg font-bold text-neutral-900 dark:text-white mb-4">
                   Danh sách học sinh ({students.length})
                 </h3>
-                <table className="w-full text-left border-collapse">
+                <table className="w-full text-left border-collapse min-w-[600px]">
                   <thead>
                     <tr className="border-b border-neutral-200 dark:border-neutral-800 text-xs font-bold text-neutral-500 uppercase tracking-wider">
                       <th className="pb-3">Mã HV</th>
@@ -430,7 +487,7 @@ export default function AdminPage() {
                 <h3 className="text-lg font-bold text-neutral-900 dark:text-white mb-4">
                   Danh sách giáo viên ({teachers.length})
                 </h3>
-                <table className="w-full text-left border-collapse">
+                <table className="w-full text-left border-collapse min-w-[500px]">
                   <thead>
                     <tr className="border-b border-neutral-200 dark:border-neutral-800 text-xs font-bold text-neutral-500 uppercase tracking-wider">
                       <th className="pb-3">Mã GV</th>
@@ -495,6 +552,71 @@ export default function AdminPage() {
                           placeholder="Thứ 3 (18:00 - 20:00) & Thứ 7"
                         />
                       </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Khối lớp (Grade)</label>
+                      <select 
+                        required
+                        value={clsForm.grade}
+                        onChange={(e) => setClsForm({ ...clsForm, grade: e.target.value })}
+                        className="w-full px-3 py-2 border rounded-xl bg-neutral-50 dark:bg-neutral-950 border-neutral-300 dark:border-neutral-700 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                      >
+                        <option value="">-- Chọn khối lớp --</option>
+                        <option value="Lớp 6">Lớp 6</option>
+                        <option value="Lớp 7">Lớp 7</option>
+                        <option value="Lớp 8">Lớp 8</option>
+                        <option value="Lớp 9">Lớp 9</option>
+                        <option value="Lớp 10">Lớp 10</option>
+                        <option value="Lớp 11">Lớp 11</option>
+                        <option value="Lớp 12">Lớp 12</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Mức độ (Level)</label>
+                      <select 
+                        required
+                        value={clsForm.level}
+                        onChange={(e) => setClsForm({ ...clsForm, level: e.target.value })}
+                        className="w-full px-3 py-2 border rounded-xl bg-neutral-50 dark:bg-neutral-950 border-neutral-300 dark:border-neutral-700 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                      >
+                        <option value="">-- Chọn mức độ --</option>
+                        <option value="Cơ bản">Cơ bản</option>
+                        <option value="Nâng cao">Nâng cao</option>
+                        <option value="Chuyên">Chuyên</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Môn học (Subject)</label>
+                      <select 
+                        required
+                        value={clsForm.subject}
+                        onChange={(e) => setClsForm({ ...clsForm, subject: e.target.value })}
+                        className="w-full px-3 py-2 border rounded-xl bg-neutral-50 dark:bg-neutral-950 border-neutral-300 dark:border-neutral-700 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                      >
+                        <option value="">-- Chọn môn học --</option>
+                        <option value="Toán">Toán</option>
+                        <option value="Văn">Văn</option>
+                        <option value="Anh">Anh</option>
+                        <option value="Lý">Lý</option>
+                        <option value="Hóa">Hóa</option>
+                        <option value="Sinh">Sinh</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Học phí / học viên / buổi (VNĐ)</label>
+                      <input 
+                        type="number" 
+                        min="0"
+                        required
+                        value={clsForm.tuitionFee}
+                        onChange={(e) => setClsForm({ ...clsForm, tuitionFee: e.target.value })}
+                        className="w-full px-3 py-2 border rounded-xl bg-neutral-50 dark:bg-neutral-950 border-neutral-300 dark:border-neutral-700 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                        placeholder="200000"
+                      />
                     </div>
 
                     <div>
@@ -573,41 +695,282 @@ export default function AdminPage() {
 
               </div>
 
-              {/* Right Column: Classes Table List */}
-              <div className="lg:col-span-2 p-6 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm overflow-x-auto self-start">
-                <h3 className="text-lg font-bold text-neutral-900 dark:text-white mb-4">
-                  Danh sách lớp học ({classes.length})
-                </h3>
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-neutral-200 dark:border-neutral-800 text-xs font-bold text-neutral-500 uppercase tracking-wider">
-                      <th className="pb-3">Mã Lớp</th>
-                      <th className="pb-3">Tên lớp</th>
-                      <th className="pb-3">Giáo viên phụ trách</th>
-                      <th className="pb-3">Lịch học</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800 text-sm text-neutral-700 dark:text-neutral-300">
-                    {classes.map((cls) => (
-                      <tr key={cls.classId} className="hover:bg-neutral-50/50 dark:hover:bg-neutral-800/10">
-                        <td className="py-3.5 font-mono text-xs font-bold">{cls.classId}</td>
-                        <td className="py-3.5 font-bold text-neutral-900 dark:text-white">{cls.className}</td>
-                        <td className="py-3.5">{cls.teacherName}</td>
-                        <td className="py-3.5">{cls.schedule}</td>
-                      </tr>
-                    ))}
-                    {classes.length === 0 && (
-                      <tr>
-                        <td colSpan={4} className="py-8 text-center text-neutral-400 font-medium">Chưa có lớp học nào</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+              {/* Right Column: Classes Table List OR Student Lifecycle */}
+              <div className="lg:col-span-2 space-y-6 self-start">
+                {!lifecycleClassId ? (
+                  /* Classes list */
+                  <div className="p-6 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm overflow-x-auto animate-fade-in">
+                    <h3 className="text-lg font-bold text-neutral-900 dark:text-white mb-4">
+                      Danh sách lớp học ({classes.length})
+                    </h3>
+                    <table className="w-full text-left border-collapse min-w-[800px]">
+                      <thead>
+                        <tr className="border-b border-neutral-200 dark:border-neutral-800 text-xs font-bold text-neutral-500 uppercase tracking-wider">
+                          <th className="pb-3">Mã Lớp</th>
+                          <th className="pb-3">Tên lớp</th>
+                          <th className="pb-3">Giáo viên phụ trách</th>
+                          <th className="pb-3">Lịch học</th>
+                          <th className="pb-3 text-right">Học phí</th>
+                          <th className="pb-3">Tiến độ</th>
+                          <th className="pb-3 text-right">Hành động</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800 text-sm text-neutral-700 dark:text-neutral-300">
+                        {classes.map((cls) => (
+                          <tr key={cls.classId} className="hover:bg-neutral-50/50 dark:hover:bg-neutral-800/10">
+                            <td className="py-3.5 font-mono text-xs font-bold">{cls.classId}</td>
+                            <td className="py-3.5 font-bold text-neutral-900 dark:text-white">{cls.className}</td>
+                            <td className="py-3.5">{cls.teacherName}</td>
+                            <td className="py-3.5">{cls.schedule}</td>
+                            <td className="py-3.5 text-right font-bold text-neutral-800 dark:text-neutral-200">
+                              {(cls.tuitionFee || 200000).toLocaleString("vi-VN")} đ
+                            </td>
+                            <td className="py-3.5">
+                              <div className="flex items-center gap-2">
+                                <div className="w-20 bg-neutral-200 dark:bg-neutral-800 rounded-full h-2 overflow-hidden">
+                                  <div 
+                                    className="bg-green-500 h-full rounded-full transition-all duration-500" 
+                                    style={{ width: `${cls.progressPercent || 0}%` }}
+                                  />
+                                </div>
+                                <span className="text-xs font-bold text-neutral-700 dark:text-neutral-300">
+                                  {Math.round(cls.progressPercent || 0)}%
+                                </span>
+                              </div>
+                            </td>
+                            <td className="py-3.5 text-right">
+                              <button
+                                onClick={() => setLifecycleClassId(cls.classId)}
+                                className="px-3 py-1 rounded-lg text-xs font-bold transition-all bg-neutral-100 hover:bg-neutral-200 text-neutral-700 dark:bg-neutral-800 dark:hover:bg-neutral-700 dark:text-neutral-300 cursor-pointer"
+                              >
+                                Xem chi tiết
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                        {classes.length === 0 && (
+                          <tr>
+                            <td colSpan={6} className="py-8 text-center text-neutral-400 font-medium">Chưa có lớp học nào</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (() => {
+                  const selectedClassObj = classes.find(c => c.classId === lifecycleClassId);
+                  return (
+                    /* Detailed Class lifecycle management card */
+                    <div className="p-6 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm space-y-6 animate-fade-in">
+                      <div className="flex justify-between items-start border-b border-neutral-100 dark:border-neutral-800/50 pb-4">
+                        <div className="space-y-1">
+                          <h3 className="text-lg font-bold text-neutral-900 dark:text-white flex items-center gap-2">
+                            Thông tin lớp học chi tiết: {selectedClassObj?.className} ({lifecycleClassId})
+                          </h3>
+                          <p className="text-xs text-neutral-500">
+                            Giáo viên phụ trách: <span className="font-semibold text-neutral-700 dark:text-neutral-300">{selectedClassObj?.teacherName || "Chưa phân công"}</span> | Lịch học: <span className="font-semibold text-neutral-700 dark:text-neutral-300">{selectedClassObj?.schedule || "N/A"}</span>
+                          </p>
+                          <div className="flex items-center gap-2 mt-2">
+                            <span className="text-xs text-neutral-500">Tiến độ chương trình:</span>
+                            <div className="w-32 bg-neutral-200 dark:bg-neutral-800 rounded-full h-2 overflow-hidden">
+                              <div 
+                                className="bg-green-500 h-full rounded-full transition-all duration-500" 
+                                style={{ width: `${selectedClassObj?.progressPercent || 0}%` }}
+                              />
+                            </div>
+                            <span className="text-xs font-bold text-neutral-700 dark:text-neutral-300">
+                              {Math.round(selectedClassObj?.progressPercent || 0)}%
+                            </span>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setLifecycleClassId("")}
+                          className="p-1 rounded-lg text-neutral-400 hover:text-neutral-600 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
+                        >
+                          <X className="w-5 h-5" />
+                        </button>
+                      </div>
+
+                      {!lifecycleClassDetails ? (
+                        <div className="py-8 flex justify-center items-center">
+                          <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+                        </div>
+                      ) : (
+                        <div className="space-y-6">
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-left border-collapse min-w-[800px]">
+                              <thead>
+                                <tr className="border-b border-neutral-200 dark:border-neutral-800 text-xs font-bold text-neutral-500 uppercase tracking-wider">
+                                  <th className="pb-3">Học viên</th>
+                                  <th className="pb-3 text-center">Trạng thái</th>
+                                  <th className="pb-3 text-right">Học phí nợ</th>
+                                  <th className="pb-3 text-right">Cập nhật trạng thái</th>
+                                  <th className="pb-3 text-right">Chuyển lớp</th>
+                                  <th className="pb-3 text-right">Xóa</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800 text-sm text-neutral-700 dark:text-neutral-300">
+                                {lifecycleClassDetails.students?.map((std: any) => {
+                                  const isTransferring = showTransferSelect[std.studentId];
+                                  return (
+                                    <tr key={std.studentId} className="hover:bg-neutral-50/50 dark:hover:bg-neutral-800/10">
+                                      <td className="py-3.5">
+                                        <p className="font-bold text-neutral-900 dark:text-white">{std.fullName}</p>
+                                        <span className="text-xs font-mono text-neutral-400">{std.studentId}</span>
+                                      </td>
+                                      <td className="py-3.5 text-center">
+                                        <span className={`inline-block px-2.5 py-0.5 rounded-full font-extrabold text-[10px] uppercase tracking-wider ${
+                                          std.status === "Đang học"
+                                            ? "bg-green-500/10 text-green-600 dark:text-green-400"
+                                            : std.status === "Bảo lưu"
+                                              ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                                              : "bg-neutral-500/15 text-neutral-500 dark:text-neutral-400"
+                                        }`}>
+                                          {std.status}
+                                        </span>
+                                      </td>
+                                      <td className="py-3.5 text-right font-semibold text-rose-500">
+                                        {std.debt > 0 ? `${std.debt.toLocaleString("vi-VN")} đ` : "—"}
+                                      </td>
+                                      <td className="py-3.5 text-right">
+                                        <div className="flex justify-end gap-1.5">
+                                          {(["Đang học", "Bảo lưu", "Nghỉ học"] as const).map((st) => (
+                                            <button
+                                              key={st}
+                                              disabled={std.status === st || submittingStatusId === `${std.studentId}_${st}`}
+                                              onClick={() => handleUpdateStatus(std.studentId, lifecycleClassId, st)}
+                                              className={`px-2 py-1 rounded text-[11px] font-bold cursor-pointer transition-colors ${
+                                                std.status === st
+                                                  ? "bg-blue-500/10 text-blue-600 cursor-default"
+                                                  : "bg-neutral-50 hover:bg-neutral-100 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-600 dark:text-neutral-300"
+                                              }`}
+                                            >
+                                              {st === "Đang học" ? "Học tiếp" : st === "Bảo lưu" ? "Bảo lưu" : "Nghỉ"}
+                                            </button>
+                                          ))}
+                                        </div>
+                                      </td>
+                                      <td className="py-3.5 text-right">
+                                        {!isTransferring ? (
+                                          <button
+                                            onClick={() => setShowTransferSelect(prev => ({ ...prev, [std.studentId]: true }))}
+                                            className="px-2.5 py-1 rounded bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 font-bold text-[11px] transition-colors cursor-pointer"
+                                          >
+                                            Chuyển lớp
+                                          </button>
+                                        ) : (
+                                          <div className="flex items-center justify-end gap-1">
+                                            <select
+                                              value={transferTargetClassId[std.studentId] || ""}
+                                              onChange={(e) => setTransferTargetClassId(prev => ({ ...prev, [std.studentId]: e.target.value }))}
+                                              className="px-1.5 py-1 border rounded text-[11px] bg-white dark:bg-neutral-900 border-neutral-300 dark:border-neutral-700 focus:outline-none"
+                                            >
+                                              <option value="">-- Lớp mới --</option>
+                                              {classes
+                                                .filter(c => c.classId !== lifecycleClassId)
+                                                .map(c => (
+                                                  <option key={c.classId} value={c.classId}>{c.className}</option>
+                                                ))}
+                                            </select>
+                                            <button
+                                              onClick={() => {
+                                                const target = transferTargetClassId[std.studentId];
+                                                if (target) {
+                                                  handleUpdateStatus(std.studentId, lifecycleClassId, "Chuyển lớp", target);
+                                                  setShowTransferSelect(prev => ({ ...prev, [std.studentId]: false }));
+                                                }
+                                              }}
+                                              className="px-2 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px] cursor-pointer"
+                                            >
+                                              Đi
+                                            </button>
+                                            <button
+                                              onClick={() => setShowTransferSelect(prev => ({ ...prev, [std.studentId]: false }))}
+                                              className="px-2 py-1 rounded bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 font-bold text-[11px] cursor-pointer"
+                                            >
+                                              Hủy
+                                            </button>
+                                          </div>
+                                        )}
+                                      </td>
+                                      <td className="py-3.5 text-right">
+                                        <button
+                                          onClick={() => {
+                                            if (confirm(`Bạn có chắc chắn muốn xóa học viên ${std.fullName} khỏi lớp này không?`)) {
+                                              handleRemoveStudent(std.studentId, lifecycleClassId);
+                                            }
+                                          }}
+                                          className="px-2 py-1 rounded bg-rose-500/10 hover:bg-rose-500 text-rose-600 hover:text-white font-bold text-[11px] transition-colors cursor-pointer"
+                                        >
+                                          Xóa
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                                {(!lifecycleClassDetails.students || lifecycleClassDetails.students.length === 0) && (
+                                  <tr>
+                                    <td colSpan={6} className="py-8 text-center text-neutral-400 font-medium">Lớp chưa có học viên nào ghi danh</td>
+                                  </tr>
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          {/* Curriculum Progress Section */}
+                          <div className="border-t border-neutral-200 dark:border-neutral-800 pt-6">
+                            <h4 className="text-sm font-bold text-neutral-900 dark:text-white mb-3">
+                              Lộ Trình Đào Tạo ({curriculumProgress.length} chủ đề)
+                            </h4>
+                            {curriculumProgress.length === 0 ? (
+                              <p className="text-xs text-neutral-500 italic">Không có thông tin lộ trình học.</p>
+                            ) : (
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {curriculumProgress.map((prog: any, idx: number) => (
+                                  <div key={idx} className="p-3.5 rounded-xl border border-neutral-100 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/30 flex items-center justify-between">
+                                    <div className="space-y-1">
+                                      <p className="text-xs font-bold text-neutral-950 dark:text-neutral-100">{prog.topicName}</p>
+                                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-extrabold uppercase ${
+                                        prog.status === "Đã dạy" 
+                                          ? "bg-green-500/10 text-green-600 dark:text-green-400"
+                                          : "bg-neutral-500/10 text-neutral-500"
+                                      }`}>
+                                        {prog.status || "Chưa dạy"}
+                                      </span>
+                                    </div>
+                                    <div className="text-right">
+                                      <span className="text-xs font-bold text-neutral-950 dark:text-white">{prog.progressPercent}%</span>
+                                      <div className="w-16 bg-neutral-200 dark:bg-neutral-800 rounded-full h-1.5 mt-1 overflow-hidden">
+                                        <div className="bg-blue-600 h-full rounded-full" style={{ width: `${prog.progressPercent}%` }} />
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           )}
         </div>
       )}
     </div>
+  );
+}
+
+export default function AdminPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex-1 flex flex-col items-center justify-center py-16">
+        <Loader2 className="w-10 h-10 animate-spin text-blue-600" />
+        <p className="mt-4 text-sm font-medium text-neutral-500">Đang tải trang quản trị...</p>
+      </div>
+    }>
+      <AdminPageContent />
+    </Suspense>
   );
 }

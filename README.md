@@ -45,7 +45,7 @@ Sử dụng các tài khoản mẫu sau để đăng nhập trải nghiệm các
 
 | Vai trò | Email | Mật khẩu mẫu | Các tính năng chính |
 | :--- | :--- | :--- | :--- |
-| **Quản trị viên (ADMIN)** | `admin@upgrid.edu.vn` | `admin123` | Thêm học viên/giáo viên mới, tạo lớp học, xếp lớp học viên |
+| **Quản trị viên (ADMIN)** | `admin@upgrid.edu.vn` | `123456789` | Thêm học viên/giáo viên mới, tạo lớp học, xếp lớp học viên |
 | **Giáo viên (GIAO_VIEN)** | `teacher.ha@upgrid.edu.vn` | `teacher123` | Quản lý điểm danh hàng loạt, nhập điểm và phản hồi (có live LaTeX) |
 | **Học viên (HOC_VIEN)** | `student.an@upgrid.edu.vn` | `student123` | Xem lịch học, chuyên cần cá nhân, xem điểm & nhận xét công thức toán |
 

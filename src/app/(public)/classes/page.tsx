@@ -1,6 +1,7 @@
 import React from "react";
 import { BookOpen, Calendar, User, Info, ArrowRight } from "lucide-react";
 import Link from "next/link";
+import ClassCardAction from "@/components/ClassCardAction";
 
 export const revalidate = 60; // ISR revalidate every 60s
 
@@ -134,13 +135,7 @@ export default async function PublicClassesPage() {
                 </div>
 
                 <div className="mt-6 pt-4 border-t border-neutral-100 dark:border-neutral-800/50 flex justify-end">
-                  <Link
-                    href="/login"
-                    className="flex items-center gap-1 text-sm font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
-                  >
-                    Đăng nhập để xem chi tiết
-                    <ArrowRight className="w-4 h-4" />
-                  </Link>
+                  <ClassCardAction classId={cls.classId} />
                 </div>
               </div>
             ))}

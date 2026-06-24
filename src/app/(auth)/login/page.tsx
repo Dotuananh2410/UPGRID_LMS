@@ -127,12 +127,6 @@ export default function LoginPage() {
           </div>
         </form>
 
-        <div className="mt-6 border-t border-neutral-200 dark:border-neutral-800 pt-6 text-center text-xs text-neutral-500 dark:text-neutral-400 space-y-1">
-          <p>Tài khoản dùng thử:</p>
-          <p>Admin: <span className="font-mono text-neutral-700 dark:text-neutral-300 select-all">admin@upgrid.edu.vn</span> / <span className="font-mono text-neutral-700 dark:text-neutral-300">admin123</span></p>
-          <p>Giáo viên: <span className="font-mono text-neutral-700 dark:text-neutral-300 select-all">teacher.ha@upgrid.edu.vn</span> / <span className="font-mono text-neutral-700 dark:text-neutral-300">teacher123</span></p>
-          <p>Học viên: <span className="font-mono text-neutral-700 dark:text-neutral-300 select-all">student.an@upgrid.edu.vn</span> / <span className="font-mono text-neutral-700 dark:text-neutral-300">student123</span></p>
-        </div>
       </div>
     </div>
   );
