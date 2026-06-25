@@ -1,3 +1,5 @@
+import { executeMockAction } from "./mockDb";
+
 const GAS_API_URL = process.env.NEXT_PUBLIC_GAS_API_URL;
 
 interface RequestOptions {
@@ -8,16 +10,31 @@ interface RequestOptions {
 }
 
 export async function requestGas<T>(action: string, options: RequestOptions = {}): Promise<T> {
-  if (!GAS_API_URL) {
-    throw new Error("Missing NEXT_PUBLIC_GAS_API_URL environment variable.");
-  }
-
-  const { method = "GET", body = {}, retries = 3, delayMs = 1500 } = options;
+  const { method = "GET", body = {}, retries = 1, delayMs = 800 } = options;
   
   // Get token from localStorage
   let token = "";
   if (typeof window !== "undefined") {
     token = localStorage.getItem("upgrid_token") || "";
+  }
+
+  // Check if we should force local mock API
+  const forceMock = process.env.NEXT_PUBLIC_USE_MOCK_API === "true";
+
+  if (forceMock && typeof window !== "undefined") {
+    try {
+      const mockResult = await executeMockAction(action, { token, ...body });
+      if (mockResult && mockResult.success === false) {
+        throw new Error(mockResult.error || "Mock action execution failed");
+      }
+      return (mockResult.data !== undefined ? mockResult.data : mockResult) as T;
+    } catch (mockErr: any) {
+      console.warn(`[MockAPI] Action '${action}' failed, attempting remote API...`, mockErr);
+    }
+  }
+
+  if (!GAS_API_URL) {
+    throw new Error("Missing NEXT_PUBLIC_GAS_API_URL environment variable.");
   }
 
   let url = `${GAS_API_URL}`;
@@ -39,13 +56,10 @@ export async function requestGas<T>(action: string, options: RequestOptions = {}
     url += `?${params.toString()}`;
     fetchOptions = {
       method: "GET",
-      // Important: Use default mode/credentials for GAS Web Apps
       mode: "cors",
     };
   } else {
     // POST request
-    // Important: To avoid CORS preflight options issues with GAS, 
-    // we send payload as text/plain. This classes as a 'simple request' in CORS.
     const payload = {
       action,
       token,
@@ -83,6 +97,20 @@ export async function requestGas<T>(action: string, options: RequestOptions = {}
         console.warn(`GAS request failed (Attempt ${attempt + 1}/${retries + 1}). Retrying in ${delayMs}ms...`, err);
         await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
+    }
+  }
+
+  // If remote fails completely, check if we can fallback to mock DB client-side
+  if (typeof window !== "undefined" && forceMock) {
+    console.warn(`[apiClient] GAS remote API failed. Falling back to local mock database for action: ${action}`);
+    try {
+      const mockResult = await executeMockAction(action, { token, ...body });
+      if (mockResult && mockResult.success === false) {
+        throw new Error(mockResult.error || "Mock action execution failed");
+      }
+      return (mockResult.data !== undefined ? mockResult.data : mockResult) as T;
+    } catch (mockErr: any) {
+      console.error(`[apiClient] Local mock database fallback failed as well:`, mockErr);
     }
   }
 

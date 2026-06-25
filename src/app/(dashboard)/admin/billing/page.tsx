@@ -240,18 +240,6 @@ export default function BillingPage() {
             <Clock className="w-4.5 h-4.5 text-blue-500" />
             Xem Lịch Sử Giao Dịch
           </button>
-          <button
-            onClick={() => {
-              setForm({ studentId: "", classId: "", amount: "", type: "Thu", date: new Date().toLocaleDateString("sv-SE") });
-              setIsFromList(false);
-              setEnrolledClasses([]);
-              setIsModalOpen(true);
-            }}
-            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-700 hover:to-cyan-600 text-white font-bold text-sm shadow-md flex items-center gap-1.5 hover-lift transition-all cursor-pointer"
-          >
-            <Plus className="w-4.5 h-4.5" />
-            Tạo Giao Dịch Mới
-          </button>
         </div>
       </div>
 

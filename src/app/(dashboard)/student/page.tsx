@@ -6,17 +6,52 @@ import { requestGas } from "@/utils/apiClient";
 import { StudentDashboard } from "@/types/lms";
 import { useAuth } from "@/context/AuthContext";
 import MathRenderer from "@/components/MathRenderer";
+import SyllabusLibrary from "@/components/SyllabusLibrary";
+import OnlineExam from "@/components/OnlineExam";
+import ExamResultReview from "@/components/ExamResultReview";
 import { 
   BookOpen, Calendar, Award, 
   TrendingUp, CheckCircle, XCircle, 
   Loader2, BellRing, ClipboardList,
-  DollarSign, CreditCard, MessageSquare, Star, Check, X, Sparkles, Filter
+  DollarSign, CreditCard, MessageSquare, Star, Check, X, Sparkles, Filter, Library
 } from "lucide-react";
 
 export default function StudentPage() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<"learning" | "finance" | "feedback">("learning");
+  const [activeTab, setActiveTab] = useState<"learning" | "library" | "finance" | "feedback">("learning");
   const [selectedClassId, setSelectedClassId] = useState<string>("");
+
+  const [activeExam, setActiveExam] = useState<any | null>(null);
+  const [activeReviewAttemptId, setActiveReviewAttemptId] = useState<string | null>(null);
+  const [examLoading, setExamLoading] = useState(false);
+  const [examError, setExamError] = useState<string | null>(null);
+
+  const handleStartExam = async (classId: string, examId: string) => {
+    setExamLoading(true);
+    setExamError(null);
+    try {
+      const res = await requestGas<any>("startExam", {
+        method: "POST",
+        body: { classId, examId }
+      });
+      setActiveExam(res);
+    } catch (err: any) {
+      setExamError(err.message || "Không thể bắt đầu bài thi này.");
+      alert(err.message || "Không thể bắt đầu bài thi này.");
+    } finally {
+      setExamLoading(false);
+    }
+  };
+
+  const handleViewResult = (attemptId: string) => {
+    setActiveReviewAttemptId(attemptId);
+  };
+
+  const handleExamSubmitSuccess = (attemptId: string) => {
+    setActiveExam(null);
+    setActiveReviewAttemptId(attemptId);
+    mutateDashboard();
+  };
 
   // Feedback form state
   const [feedbackClassId, setFeedbackClassId] = useState("");
@@ -29,19 +64,19 @@ export default function StudentPage() {
   // 1. Fetch Student Dashboard Data
   const { data: dashboard, error, mutate: mutateDashboard } = useSWR(
     user ? `getStudentDashboard/${user.refId}` : null,
-    () => requestGas<StudentDashboard>("getStudentDashboard")
+    () => requestGas<StudentDashboard>("getStudentDashboard", { method: "GET", body: { studentId: user?.refId } })
   );
 
   // 2. Fetch Student Debt Data
   const { data: tuitionData, mutate: mutateDebt } = useSWR(
     user && activeTab === "finance" ? `getStudentDebt/${user.refId}` : null,
-    () => requestGas<any>("getStudentDebt", { body: { studentId: user?.refId } })
+    () => requestGas<any>("getStudentDebt", { method: "GET", body: { studentId: user?.refId } })
   );
 
   // 3. Fetch Class Curriculum Progress for drilled-down class
   const { data: curriculumProgress = [] } = useSWR(
     selectedClassId && activeTab === "learning" ? `getClassProgress/${selectedClassId}` : null,
-    () => requestGas<any[]>("getClassProgress", { body: { classId: selectedClassId } })
+    () => requestGas<any[]>("getClassProgress", { method: "GET", body: { classId: selectedClassId } })
   );
 
   const loading = !error && !dashboard;
@@ -79,8 +114,11 @@ export default function StudentPage() {
 
   // Calculate GPA
   const validGrades = grades.filter((g) => g.grade !== undefined && g.grade !== null);
-  const averageGrade = validGrades.length > 0 
-    ? (validGrades.reduce((sum, g) => sum + g.grade, 0) / validGrades.length).toFixed(2)
+  const averageGradeVal = validGrades.length > 0 
+    ? (validGrades.reduce((sum, g) => sum + g.grade, 0) / validGrades.length)
+    : null;
+  const averageGrade = typeof averageGradeVal === "number" && !isNaN(averageGradeVal)
+    ? averageGradeVal.toFixed(2)
     : "—";
 
   // Handle feedback submission
@@ -138,6 +176,16 @@ export default function StudentPage() {
             }`}
           >
             <BookOpen className="w-4 h-4" /> Học tập
+          </button>
+          <button
+            onClick={() => setActiveTab("library")}
+            className={`px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+              activeTab === "library"
+                ? "bg-white dark:bg-neutral-900 text-blue-600 dark:text-blue-400 shadow-sm"
+                : "text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white"
+            }`}
+          >
+            <Library className="w-4 h-4" /> Thư viện học tập
           </button>
           <button
             onClick={() => setActiveTab("finance")}
@@ -268,7 +316,7 @@ export default function StudentPage() {
                             </span>
                           </div>
                           <div className="text-lg font-extrabold text-blue-600 dark:text-blue-400 bg-white dark:bg-neutral-900 px-3.5 py-1 rounded-lg border border-neutral-200 dark:border-neutral-800 shadow-sm">
-                            {grd.grade.toFixed(1)} / 10
+                            {typeof grd.grade === "number" ? grd.grade.toFixed(1) : "N/A"} / 10
                           </div>
                         </div>
                         <div className="space-y-1">
@@ -407,7 +455,7 @@ export default function StudentPage() {
                           <div className="flex justify-between items-center border-b border-neutral-100 dark:border-neutral-850 pb-2">
                             <span className="font-bold text-sm text-neutral-900 dark:text-white">{g.assignmentName}</span>
                             <span className="px-2.5 py-1 rounded bg-blue-600 text-white text-xs font-extrabold">
-                              {g.grade.toFixed(1)} / 10
+                              {typeof g.grade === "number" ? g.grade.toFixed(1) : "N/A"} / 10
                             </span>
                           </div>
                           <div className="text-xs font-medium text-neutral-600 dark:text-neutral-400 bg-neutral-50 dark:bg-neutral-950 p-2.5 rounded-lg">
@@ -454,6 +502,20 @@ export default function StudentPage() {
               </div>
             );
           })()}
+        </div>
+      )}
+
+      {/* LIBRARY TAB */}
+      {activeTab === "library" && (
+        <div className="animate-fade-in">
+          <SyllabusLibrary
+            classes={classes}
+            studentId={user?.refId || ""}
+            onStartExam={handleStartExam}
+            onViewResult={handleViewResult}
+            attendances={dashboard?.attendances || []}
+            grades={dashboard?.grades || []}
+          />
         </div>
       )}
 
@@ -641,6 +703,42 @@ export default function StudentPage() {
               Gửi Phản Hồi Ý Kiến
             </button>
           </form>
+        </div>
+      )}
+
+      {/* Fullscreen Timed Online Exam view */}
+      {activeExam && (
+        <OnlineExam
+          attemptId={activeExam.attemptId}
+          examId={activeExam.examId}
+          examName={activeExam.examName}
+          durationMinutes={activeExam.durationMinutes}
+          questions={activeExam.questions}
+          onClose={() => {
+            if (window.confirm("Bạn có chắc chắn muốn thoát khỏi phòng thi? Tiến độ làm bài hiện tại sẽ được lưu tự động.")) {
+              setActiveExam(null);
+              mutateDashboard();
+            }
+          }}
+          onSubmitSuccess={handleExamSubmitSuccess}
+        />
+      )}
+
+      {/* Detailed Correct Answers and LaTeX solutions review screen */}
+      {activeReviewAttemptId && (
+        <ExamResultReview
+          attemptId={activeReviewAttemptId}
+          onClose={() => setActiveReviewAttemptId(null)}
+        />
+      )}
+
+      {/* Global Exam Loading State Overlay */}
+      {examLoading && (
+        <div className="fixed inset-0 bg-neutral-950/40 z-50 flex items-center justify-center">
+          <div className="bg-white dark:bg-neutral-900 px-6 py-4 rounded-2xl shadow-xl flex items-center gap-3 border border-neutral-200 dark:border-neutral-805">
+            <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+            <span className="text-sm font-bold text-neutral-800 dark:text-neutral-200">Đang chuẩn bị đề thi online...</span>
+          </div>
         </div>
       )}
     </div>

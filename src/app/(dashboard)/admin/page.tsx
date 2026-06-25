@@ -16,7 +16,7 @@ import {
 function AdminPageContent() {
   const { user } = useAuth();
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<"overview" | "students" | "teachers" | "classes">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "students" | "teachers" | "classes" | "materials">("overview");
 
   // Redirect if not ADMIN
   if (user && user.role !== "ADMIN") {
@@ -37,6 +37,11 @@ function AdminPageContent() {
     requestGas<Class[]>("getClasses")
   );
 
+  const { data: allFolders = [], mutate: mutateFolders } = useSWR(
+    activeTab === "materials" ? "getFolders" : null,
+    () => requestGas<any[]>("getFolders")
+  );
+
   // Loading States
   const loading = !errStd && !students.length && !errTch && !teachers.length && !errCls && !classes.length;
 
@@ -53,6 +58,44 @@ function AdminPageContent() {
   const [tchForm, setTchForm] = useState({ fullName: "", email: "", password: "" });
   const [clsForm, setClsForm] = useState({ className: "", schedule: "", teacherId: "", grade: "", level: "", subject: "", tuitionFee: "200000" });
   const [enrForm, setEnrForm] = useState({ classId: "", studentId: "" });
+
+  const [folderForm, setFolderForm] = useState({ folderName: "", subject: "", grade: "", level: "", sortOrder: "1", description: "" });
+  const [submittingFolder, setSubmittingFolder] = useState(false);
+
+  const handleAddFolder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmittingFolder(true);
+    try {
+      await requestGas("createFolder", {
+        method: "POST",
+        body: {
+          ...folderForm,
+          sortOrder: parseInt(folderForm.sortOrder) || 1
+        }
+      });
+      showMessage("success", "Tạo chuyên đề (folder) mới thành công!");
+      setFolderForm({ folderName: "", subject: "", grade: "", level: "", sortOrder: "1", description: "" });
+      mutateFolders();
+    } catch (err: any) {
+      showMessage("error", err.message || "Lỗi tạo chuyên đề");
+    } finally {
+      setSubmittingFolder(false);
+    }
+  };
+
+  const handleDeleteFolder = async (folderId: string) => {
+    if (!window.confirm("Bạn có chắc chắn muốn xóa chuyên đề này? Tất cả file và liên kết thuộc chuyên đề cũng sẽ bị xóa.")) return;
+    try {
+      await requestGas("deleteFolder", {
+        method: "POST",
+        body: { folderId }
+      });
+      showMessage("success", "Xóa chuyên đề thành công!");
+      mutateFolders();
+    } catch (err: any) {
+      showMessage("error", err.message || "Lỗi xóa chuyên đề");
+    }
+  };
 
   // Student Lifecycle States
   const [lifecycleClassId, setLifecycleClassId] = useState("");
@@ -229,7 +272,7 @@ function AdminPageContent() {
 
       {/* Tabs */}
       <div className="flex border-b border-neutral-200 dark:border-neutral-800 space-x-2 overflow-x-auto pb-1 scrollbar-none whitespace-nowrap">
-        {(["overview", "students", "teachers", "classes"] as const).map((tab) => (
+        {(["overview", "students", "teachers", "classes", "materials"] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -239,7 +282,7 @@ function AdminPageContent() {
                 : "border-transparent text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"
             }`}
           >
-            {tab === "overview" ? "Tổng quan" : tab === "students" ? "Học viên" : tab === "teachers" ? "Giáo viên" : "Lớp học & Ghi danh"}
+            {tab === "overview" ? "Tổng quan" : tab === "students" ? "Học viên" : tab === "teachers" ? "Giáo viên" : tab === "classes" ? "Lớp học & Ghi danh" : "Quản lý Chuyên đề"}
           </button>
         ))}
       </div>
@@ -953,6 +996,161 @@ function AdminPageContent() {
                     </div>
                   );
                 })()}
+              </div>
+            </div>
+          )}
+
+          {/* MATERIALS (Quản lý Chuyên đề) TAB */}
+          {activeTab === "materials" && (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-fade-in">
+              {/* Form Add Folder */}
+              <div className="lg:col-span-1 p-6 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm space-y-6 self-start">
+                <h3 className="text-lg font-bold text-neutral-900 dark:text-white flex items-center gap-2">
+                  <Plus className="w-5 h-5 text-blue-500" /> Tạo Chuyên Đề Mới
+                </h3>
+
+                <form onSubmit={handleAddFolder} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Tên chuyên đề (Folder)</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={folderForm.folderName}
+                      onChange={(e) => setFolderForm({ ...folderForm, folderName: e.target.value })}
+                      className="w-full px-3 py-2 border rounded-xl bg-neutral-50 dark:bg-neutral-950 border-neutral-300 dark:border-neutral-700 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                      placeholder="Ví dụ: Số chính phương"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Môn học</label>
+                    <select 
+                      required
+                      value={folderForm.subject}
+                      onChange={(e) => setFolderForm({ ...folderForm, subject: e.target.value })}
+                      className="w-full px-3 py-2 border rounded-xl bg-neutral-50 dark:bg-neutral-950 border-neutral-300 dark:border-neutral-700 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    >
+                      <option value="">-- Chọn môn học --</option>
+                      <option value="Toán">Toán</option>
+                      <option value="Văn">Văn</option>
+                      <option value="Anh">Anh</option>
+                      <option value="Lý">Lý</option>
+                      <option value="Hóa">Hóa</option>
+                      <option value="Sinh">Sinh</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Khối lớp (Grade)</label>
+                    <select 
+                      required
+                      value={folderForm.grade}
+                      onChange={(e) => setFolderForm({ ...folderForm, grade: e.target.value })}
+                      className="w-full px-3 py-2 border rounded-xl bg-neutral-50 dark:bg-neutral-950 border-neutral-300 dark:border-neutral-700 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    >
+                      <option value="">-- Chọn khối lớp --</option>
+                      <option value="Lớp 6">Lớp 6</option>
+                      <option value="Lớp 7">Lớp 7</option>
+                      <option value="Lớp 8">Lớp 8</option>
+                      <option value="Lớp 9">Lớp 9</option>
+                      <option value="Lớp 10">Lớp 10</option>
+                      <option value="Lớp 11">Lớp 11</option>
+                      <option value="Lớp 12">Lớp 12</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Mức độ (Level)</label>
+                    <select 
+                      required
+                      value={folderForm.level}
+                      onChange={(e) => setFolderForm({ ...folderForm, level: e.target.value })}
+                      className="w-full px-3 py-2 border rounded-xl bg-neutral-50 dark:bg-neutral-950 border-neutral-300 dark:border-neutral-700 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    >
+                      <option value="">-- Chọn mức độ --</option>
+                      <option value="Cơ bản">Cơ bản</option>
+                      <option value="Nâng cao">Nâng cao</option>
+                      <option value="Chuyên">Chuyên</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Số thứ tự hiển thị</label>
+                    <input 
+                      type="number" 
+                      required
+                      value={folderForm.sortOrder}
+                      onChange={(e) => setFolderForm({ ...folderForm, sortOrder: e.target.value })}
+                      className="w-full px-3 py-2 border rounded-xl bg-neutral-50 dark:bg-neutral-950 border-neutral-300 dark:border-neutral-700 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                      placeholder="1"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Mô tả chuyên đề</label>
+                    <textarea 
+                      rows={3}
+                      value={folderForm.description}
+                      onChange={(e) => setFolderForm({ ...folderForm, description: e.target.value })}
+                      className="w-full px-3 py-2 border rounded-xl bg-neutral-50 dark:bg-neutral-950 border-neutral-300 dark:border-neutral-700 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                      placeholder="Nhập mô tả chuyên đề..."
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={submittingFolder}
+                    className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-md transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    {submittingFolder ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4.5 h-4.5" />}
+                    Tạo Chuyên Đề
+                  </button>
+                </form>
+              </div>
+
+              {/* Table List of Folders */}
+              <div className="lg:col-span-2 p-6 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm overflow-x-auto">
+                <h3 className="text-lg font-bold text-neutral-900 dark:text-white mb-4">
+                  Danh sách chuyên đề đã có ({allFolders.length})
+                </h3>
+                <table className="w-full text-left border-collapse min-w-[600px]">
+                  <thead>
+                    <tr className="border-b border-neutral-200 dark:border-neutral-800 text-xs font-bold text-neutral-500 uppercase tracking-wider">
+                      <th className="pb-3">Mã Chuyên Đề</th>
+                      <th className="pb-3">Tên chuyên đề</th>
+                      <th className="pb-3">Môn học</th>
+                      <th className="pb-3">Phân loại</th>
+                      <th className="pb-3">Mô tả</th>
+                      <th className="pb-3 text-right">Hành động</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800 text-sm text-neutral-700 dark:text-neutral-300 font-medium">
+                    {allFolders.map((f: any) => (
+                      <tr key={f.folderId} className="hover:bg-neutral-50/50 dark:hover:bg-neutral-855">
+                        <td className="py-3.5 font-mono text-xs font-bold">{f.folderId}</td>
+                        <td className="py-3.5 font-bold text-neutral-900 dark:text-white">{f.folderName}</td>
+                        <td className="py-3.5">{f.subject}</td>
+                        <td className="py-3.5 text-xs text-neutral-500">
+                          {f.grade} - {f.level}
+                        </td>
+                        <td className="py-3.5 text-xs text-neutral-400 max-w-xs truncate">{f.description || "—"}</td>
+                        <td className="py-3.5 text-right">
+                          <button
+                            onClick={() => handleDeleteFolder(f.folderId)}
+                            className="px-2.5 py-1 text-[11px] font-bold rounded bg-rose-500/10 hover:bg-rose-500 text-rose-600 hover:text-white cursor-pointer transition-all"
+                          >
+                            Xóa
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {allFolders.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="py-8 text-center text-neutral-400 font-semibold italic">Không có chuyên đề nào được tạo.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}

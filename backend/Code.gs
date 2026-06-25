@@ -29,6 +29,52 @@ function doGet(e) {
     
     // Authorized routes
     switch (action) {
+      case "getFolders":
+        var grade = e.parameter.grade;
+        var level = e.parameter.level;
+        var subject = e.parameter.subject;
+        result = getFolders(grade, level, subject, userSession);
+        break;
+      case "getDriveFiles":
+        result = getDriveFiles(userSession);
+        break;
+      case "getFolderFiles":
+        var folderId = e.parameter.folderId;
+        result = getFolderFiles(folderId, userSession);
+        break;
+      case "getClassMaterials":
+        var classId = e.parameter.classId;
+        result = getClassMaterials(classId, userSession);
+        break;
+      case "getExamTemplates":
+        result = getExamTemplatesList();
+        break;
+      case "getExamDetail":
+        var examId = e.parameter.examId;
+        result = getExamDetail(examId, userSession);
+        break;
+      case "getExamResult":
+        var attemptId = e.parameter.attemptId;
+        result = getExamResult(attemptId, userSession);
+        break;
+      case "getStudentAttemptHistory":
+        var studentId = e.parameter.studentId;
+        var examId = e.parameter.examId;
+        result = getStudentAttemptHistory(studentId, examId, userSession);
+        break;
+      case "getStudentResultDashboard":
+        var studentId = e.parameter.studentId;
+        result = getStudentResultDashboard(studentId, userSession);
+        break;
+      case "getClassResultDashboard":
+        var classId = e.parameter.classId;
+        result = getClassResultDashboard(classId, userSession);
+        break;
+      case "getAssignmentStats":
+        var classId = e.parameter.classId;
+        var assignmentName = e.parameter.assignmentName;
+        result = getAssignmentStatsData(classId, assignmentName, userSession);
+        break;
       case "getClasses":
         result = getClassesForUser(userSession);
         break;
@@ -204,6 +250,73 @@ function doPost(e) {
         break;
         
       case "submitGrade":
+        if (userSession.role !== "GIAO_VIEN" && userSession.role !== "ADMIN") {
+          return createJSONResponse({ success: false, error: "Forbidden: Teacher or Admin access required" });
+        }
+        result = submitGradeRecord(postData);
+        break;
+      case "createFolder":
+        result = createFolder(postData, userSession);
+        break;
+      case "updateFolder":
+        result = updateFolder(postData, userSession);
+        break;
+      case "deleteFolder":
+        result = deleteFolder(postData.folderId, userSession);
+        break;
+      case "createFilePDF":
+        result = createFilePDF(postData, userSession);
+        break;
+      case "deleteFile":
+        result = deleteFile(postData.fileId, userSession);
+        break;
+      case "assignMaterialToClass":
+        result = assignMaterialToClass(postData, userSession);
+        break;
+      case "removeMaterialFromClass":
+        result = removeMaterialFromClass(postData, userSession);
+        break;
+      case "updateMaterialLink":
+        result = updateMaterialLink(postData, userSession);
+        break;
+      case "createExamTemplate":
+        result = createExamTemplate(postData, userSession);
+        break;
+      case "updateExamTemplate":
+        result = updateExamTemplate(postData, userSession);
+        break;
+      case "createCustomExam":
+        result = createCustomExam(postData, userSession);
+        break;
+      case "createExam":
+        result = createExam(postData, userSession);
+        break;
+      case "parseLatexSection":
+        result = parseLatexSection(postData, userSession);
+        break;
+      case "saveExamSection":
+        result = saveExamSection(postData, userSession);
+        break;
+      case "publishExam":
+        result = publishExam(postData, userSession);
+        break;
+      case "archiveExam":
+        result = archiveExam(postData, userSession);
+        break;
+      case "startExam":
+        result = startExam(postData.classId, postData.examId, userSession);
+        break;
+      case "saveExamProgress":
+        result = saveExamProgress(postData, userSession);
+        break;
+      case "submitExam":
+        result = submitExam(postData, userSession);
+        break;
+      case "gradeEssayAnswer":
+        result = gradeEssayAnswer(postData, userSession);
+        break;
+      case "submitManualGrade":
+      case "updateManualGrade":
         if (userSession.role !== "GIAO_VIEN" && userSession.role !== "ADMIN") {
           return createJSONResponse({ success: false, error: "Forbidden: Teacher or Admin access required" });
         }
@@ -832,24 +945,27 @@ function submitGradeRecord(data) {
   var idxFeedback = headers.indexOf("Feedback");
   
   var existingRowIdx = -1;
+  var recordId = "";
   
   for (var i = 1; i < dataRange.length; i++) {
     if (dataRange[i][idxClass] === classId && 
         dataRange[i][idxStudent] === studentId && 
         dataRange[i][idxAssignment] === assignmentName) {
       existingRowIdx = i + 1; // 1-based index
+      recordId = dataRange[i][idxId];
       break;
     }
   }
   
+  var action = "created";
   if (existingRowIdx !== -1) {
     // Update existing grade
     sheet.getRange(existingRowIdx, idxGrade + 1).setValue(grade);
     sheet.getRange(existingRowIdx, idxFeedback + 1).setValue(feedback);
-    return { success: true, data: { action: "updated", recordId: dataRange[existingRowIdx - 1][idxId] } };
+    action = "updated";
   } else {
     // Create new grade
-    var recordId = "GRD_" + Utilities.formatDate(new Date(), "GMT+7", "yyyyMMdd") + "_" + Math.floor(1000 + Math.random() * 9000);
+    recordId = "GRD_" + Utilities.formatDate(new Date(), "GMT+7", "yyyyMMdd") + "_" + Math.floor(1000 + Math.random() * 9000);
     appendRowData("DIEM_SO", {
       RecordID: recordId,
       ClassID: classId,
@@ -858,8 +974,73 @@ function submitGradeRecord(data) {
       Grade: grade,
       Feedback: feedback
     });
-    return { success: true, data: { action: "created", recordId: recordId } };
   }
+  
+  // SYNC TO KET_QUA_HOC_TAP
+  var classes = [];
+  try {
+    classes = getSheetData("LOPHOC");
+  } catch(e) {}
+  var matchedClass = classes.find(function(c) { return c.ClassID === classId; });
+  var teacherId = matchedClass ? matchedClass.TeacherID : "ADMIN_01";
+  
+  var todayStr = Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM-dd");
+  
+  var kqSheet = ss.getSheetByName("KET_QUA_HOC_TAP");
+  var kqRows = kqSheet.getRange(1, 1, kqSheet.getLastRow(), kqSheet.getLastColumn()).getValues();
+  var kqHeaders = kqRows[0];
+  
+  var idxKqStudent = kqHeaders.indexOf("StudentID");
+  var idxKqClass = kqHeaders.indexOf("ClassID");
+  var idxKqAssign = kqHeaders.indexOf("AssignmentName");
+  var idxKqSource = kqHeaders.indexOf("Source_Type");
+  var idxKqScore = kqHeaders.indexOf("Score");
+  var idxKqMaxScore = kqHeaders.indexOf("MaxScore");
+  var idxKqNormScore = kqHeaders.indexOf("NormalizedScore");
+  var idxKqFeedback = kqHeaders.indexOf("Feedback");
+  var idxKqRecordedBy = kqHeaders.indexOf("RecordedBy");
+  var idxKqDate = kqHeaders.indexOf("RecordedDate");
+  
+  var existingKqRowIdx = -1;
+  for (var r = 1; r < kqRows.length; r++) {
+    if (kqRows[r][idxKqStudent] === studentId && 
+        kqRows[r][idxKqClass] === classId && 
+        kqRows[r][idxKqAssign] === assignmentName && 
+        kqRows[r][idxKqSource] === "MANUAL") {
+      existingKqRowIdx = r + 1;
+      break;
+    }
+  }
+  
+  if (existingKqRowIdx !== -1) {
+    kqSheet.getRange(existingKqRowIdx, idxKqScore + 1).setValue(grade);
+    kqSheet.getRange(existingKqRowIdx, idxKqNormScore + 1).setValue(grade);
+    kqSheet.getRange(existingKqRowIdx, idxKqFeedback + 1).setValue(feedback);
+    kqSheet.getRange(existingKqRowIdx, idxKqRecordedBy + 1).setValue(teacherId);
+    kqSheet.getRange(existingKqRowIdx, idxKqDate + 1).setValue(todayStr);
+  } else {
+    var resultId = "RES_" + Utilities.formatDate(new Date(), "GMT+7", "yyyyMMdd") + "_" + Math.floor(1000 + Math.random() * 9000);
+    appendRowData("KET_QUA_HOC_TAP", {
+      ResultID: resultId,
+      StudentID: studentId,
+      ClassID: classId,
+      AssignmentName: assignmentName,
+      Source_Type: "MANUAL",
+      AttemptID: "",
+      Score: grade,
+      MaxScore: 10,
+      NormalizedScore: grade,
+      Feedback: feedback,
+      RecordedBy: teacherId,
+      RecordedDate: todayStr,
+      AttemptNumber: 1,
+      IsBestAttempt: true
+    });
+  }
+  
+  recalculateBestAttempt(studentId, classId, assignmentName);
+  
+  return { success: true, data: { action: action, recordId: recordId } };
 }
 
 // 6. Student Dashboard Service (Fetch all related info in one optimized API read)
@@ -1377,27 +1558,56 @@ function getBillingDashboard() {
   var students = getSheetData("HOC_VIEN");
   var transactions = getSheetData("LICH_SU_GIAO_DICH");
   
+  var attendances = getSheetData("DIEM_DANH");
+  
+  var classRateMap = {};
+  classes.forEach(function(c) {
+    classRateMap[c.ClassID] = parseFloat(c.Hoc_Phi_Theo_Buoi) || 200000;
+  });
+
+  var attCountMap = {};
+  attendances.forEach(function(att) {
+    if (att.Trang_Thai_Duyet === "Da duyệt" || !att.Trang_Thai_Duyet) {
+      var key = att.StudentID + "_" + att.ClassID;
+      attCountMap[key] = (attCountMap[key] || 0) + 1;
+    }
+  });
+
+  var txnPaidMap = {};
+  transactions.forEach(function(txn) {
+    var key = txn.StudentID + "_" + txn.ClassID;
+    var amt = parseFloat(txn.SoTien) || 0;
+    if (txn.Loai === "Thu") {
+      txnPaidMap[key] = (txnPaidMap[key] || 0) + amt;
+    } else if (txn.Loai === "Hoàn" || txn.Loai === "Chuyển") {
+      txnPaidMap[key] = (txnPaidMap[key] || 0) - amt;
+    }
+  });
+
   var billingList = [];
   
   enrollments.forEach(function(enr) {
-    var debt = parseFloat(enr.Hoc_Phi_Con_No) || 0;
-    if (debt > 0) {
-      var student = students.find(function(s) { return s.StudentID === enr.StudentID; });
-      var cls = classes.find(function(c) { return c.ClassID === enr.ClassID; });
-      
-      var dueDate = parseDateToString(enr.Han_Dong_Hoc_Phi);
-      
-      billingList.push({
-        enrollmentId: enr.EnrollmentID,
-        studentId: enr.StudentID,
-        fullName: student ? student.FullName : "Học sinh đã xóa",
-        classId: enr.ClassID,
-        className: cls ? cls.ClassName : "Lớp đã xóa",
-        debt: debt,
-        dueDate: dueDate,
-        status: enr.Trang_Thai_Hoc || "Đang học"
-      });
-    }
+    var key = enr.StudentID + "_" + enr.ClassID;
+    var rate = classRateMap[enr.ClassID] || 200000;
+    var sessionsCount = attCountMap[key] || 0;
+    var totalPaid = txnPaidMap[key] || 0;
+    var debt = (sessionsCount * rate) - totalPaid;
+
+    var student = students.find(function(s) { return s.StudentID === enr.StudentID; });
+    var cls = classes.find(function(c) { return c.ClassID === enr.ClassID; });
+    
+    var dueDate = parseDateToString(enr.Han_Dong_Hoc_Phi);
+    
+    billingList.push({
+      enrollmentId: enr.EnrollmentID,
+      studentId: enr.StudentID,
+      fullName: student ? student.FullName : "Học sinh đã xóa",
+      classId: enr.ClassID,
+      className: cls ? cls.ClassName : "Lớp đã xóa",
+      debt: debt,
+      dueDate: dueDate,
+      status: enr.Trang_Thai_Hoc || "Đang học"
+    });
   });
   
   var txns = transactions.map(function(t) {
@@ -1574,6 +1784,7 @@ function getClassProgress(classId) {
     return classProgress.map(function(p) {
       return {
         progressId: p.ProgressID,
+        folderId: p.FolderID,
         topicName: p.TopicName,
         progressPercent: parseFloat(p.ProgressPercent) || 0,
         status: p.Status || "Chưa dạy",
@@ -1870,3 +2081,2181 @@ function disburseTeacherSalary(teacherId, month) {
   
   return { success: true, data: { count: count, teacherId: teacherId, month: month } };
 }
+
+function getDriveFiles(session) {
+  if (session.role !== "ADMIN" && session.role !== "GIAO_VIEN") {
+    throw new Error("Không có quyền truy cập Google Drive!");
+  }
+  
+  var folderId = PropertiesService.getScriptProperties().getProperty("DRIVE_FOLDER_ID") || "";
+  if (!folderId) {
+    return [
+      { id: "mock_pdf_01", name: "Đề thi thử THPT Quốc gia môn Toán.pdf", url: "https://example.com/mock_thpt.pdf", type: "PDF" },
+      { id: "mock_pdf_02", name: "Chuyên đề Hình học phẳng nâng cao.pdf", url: "https://example.com/mock_hinh.pdf", type: "PDF" }
+    ];
+  }
+  
+  try {
+    var folder = DriveApp.getFolderById(folderId);
+    var files = folder.getFiles();
+    var result = [];
+    while (files.hasNext()) {
+      var file = files.next();
+      var mime = file.getMimeType();
+      var type = "PDF";
+      if (mime === MimeType.GOOGLE_SHEETS || mime === "application/vnd.google-apps.spreadsheet") {
+        type = "SHEET";
+      } else if (mime === MimeType.GOOGLE_DOCS || mime === "application/vnd.google-apps.document") {
+        type = "DOC";
+      } else if (mime === MimeType.GOOGLE_SLIDES || mime === "application/vnd.google-apps.presentation") {
+        type = "SLIDE";
+      } else if (mime === "application/pdf") {
+        type = "PDF";
+      }
+      
+      result.push({
+        id: file.getId(),
+        name: file.getName(),
+        url: file.getUrl(),
+        type: type,
+        mimeType: mime
+      });
+    }
+    return result;
+  } catch (err) {
+    throw new Error("Lỗi truy cập thư mục Google Drive: " + err.toString());
+  }
+}
+
+// --- MODULE 1: THƯ VIỆN HỌC LIỆU ---
+
+function getFolders(grade, level, subject, session) {
+  var folders = getSheetData("FOLDER_CHUYEN_DE");
+  var activeFolders = folders.filter(function(f) { return f.IsActive === true || f.IsActive === "TRUE"; });
+  
+  if (grade) {
+    activeFolders = activeFolders.filter(function(f) { return f.Grade === grade; });
+  }
+  if (level) {
+    activeFolders = activeFolders.filter(function(f) { return f.Level === level; });
+  }
+  if (subject) {
+    activeFolders = activeFolders.filter(function(f) { return f.Subject === subject; });
+  }
+  
+  return activeFolders.map(function(f) {
+    return {
+      folderId: f.FolderID,
+      folderName: f.FolderName,
+      subject: f.Subject,
+      grade: f.Grade,
+      level: f.Level,
+      sortOrder: parseFloat(f.SortOrder) || 99,
+      description: f.Description,
+      createdBy: f.CreatedBy,
+      createdDate: parseDateToString(f.CreatedDate)
+    };
+  }).sort(function(a, b) { return a.sortOrder - b.sortOrder; });
+}
+
+function getFolderFiles(folderId, session) {
+  var allFiles = getSheetData("FILE_HOC_LIEU");
+  var folderFiles = allFiles.filter(function(f) { return f.FolderID === folderId; });
+  
+  if (session.role === "HOC_VIEN") {
+    var enrollments = getSheetData("GHI_DANH");
+    var studentClassIds = enrollments
+      .filter(function(enr) { return enr.StudentID === session.refId; })
+      .map(function(enr) { return enr.ClassID; });
+      
+    var links = getSheetData("CLASS_MATERIAL_LINK");
+    var assignedFileIds = links
+      .filter(function(lnk) { 
+        return studentClassIds.indexOf(lnk.ClassID) !== -1 && 
+               lnk.FileID && 
+               lnk.IsActive !== false && 
+               lnk.IsVisible !== false; 
+      })
+      .map(function(lnk) { return lnk.FileID; });
+      
+    folderFiles = folderFiles.filter(function(f) { return assignedFileIds.indexOf(f.FileID) !== -1; });
+  }
+  
+  return folderFiles.map(function(f) {
+    return {
+      fileId: f.FileID,
+      folderId: f.FolderID,
+      fileName: f.FileName,
+      fileType: f.FileType,
+      fileUrl: f.FileURL,
+      examId: f.ExamID,
+      uploadedBy: f.UploadedBy,
+      uploadedDate: parseDateToString(f.UploadedDate),
+      description: f.Description,
+      isGlobal: f.IsGlobal === true || f.IsGlobal === "TRUE"
+    };
+  });
+}
+
+function getClassMaterials(classId, session) {
+  if (session.role === "HOC_VIEN") {
+    var enrollments = getSheetData("GHI_DANH");
+    var isEnrolled = enrollments.some(function(enr) {
+      return enr.StudentID === session.refId && enr.ClassID === classId;
+    });
+    if (!isEnrolled) throw new Error("Học viên không ghi danh trong lớp này!");
+  } else if (session.role === "GIAO_VIEN") {
+    var classes = getSheetData("LOPHOC");
+    var cls = classes.find(function(c) { return c.ClassID === classId; });
+    if (!cls || cls.TeacherID !== session.refId) {
+      throw new Error("Giáo viên không phụ trách lớp này!");
+    }
+  }
+  
+  var links = getSheetData("CLASS_MATERIAL_LINK");
+  var files = getSheetData("FILE_HOC_LIEU");
+  var folders = getSheetData("FOLDER_CHUYEN_DE");
+  
+  var classLinks = links.filter(function(lnk) {
+    var isMatch = lnk.ClassID === classId && lnk.IsActive !== false;
+    if (session.role === "HOC_VIEN") {
+      return isMatch && lnk.IsVisible !== false;
+    }
+    return isMatch;
+  });
+  
+  return classLinks.map(function(lnk) {
+    var f = files.find(function(file) { return file.FileID === lnk.FileID; });
+    var folder = null;
+    if (f && f.FolderID) {
+      folder = folders.find(function(fol) { return fol.FolderID === f.FolderID; });
+    }
+    return {
+      linkId: lnk.LinkID,
+      classId: lnk.ClassID,
+      fileId: lnk.FileID,
+      fileName: f ? f.FileName : "File đã bị xóa",
+      fileType: f ? f.FileType : "N/A",
+      fileUrl: f ? f.FileURL : "",
+      folderId: f ? f.FolderID : null,
+      folderName: folder ? folder.FolderName : "",
+      topicName: lnk.TopicName || "",
+      description: f ? f.Description : "",
+      examId: f ? f.ExamID : "",
+      assignedBy: lnk.AssignedBy,
+      assignedDate: parseDateToString(lnk.AssignedDate),
+      dueDate: parseDateToString(lnk.DueDate),
+      isVisible: lnk.IsVisible === true || lnk.IsVisible === "TRUE",
+      sortOrder: parseFloat(lnk.SortOrder) || 99,
+      maxAttempts: lnk.MaxAttempts !== "" && lnk.MaxAttempts !== null && lnk.MaxAttempts !== undefined ? parseInt(lnk.MaxAttempts) : null
+    };
+  }).sort(function(a, b) { return a.sortOrder - b.sortOrder; });
+}
+
+function createFolder(data, session) {
+  if (session.role !== "ADMIN") throw new Error("Chỉ ADMIN mới có quyền tạo thư mục!");
+  var folderId = "FLD_" + Utilities.formatDate(new Date(), "GMT+7", "yyyyMMdd") + "_" + Math.floor(100 + Math.random() * 900);
+  var todayStr = Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM-dd");
+  
+  appendRowData("FOLDER_CHUYEN_DE", {
+    FolderID: folderId,
+    FolderName: data.folderName,
+    Subject: data.subject,
+    Grade: data.grade,
+    Level: data.level,
+    SortOrder: parseFloat(data.sortOrder) || 99,
+    Description: data.description || "",
+    CreatedBy: session.refId,
+    CreatedDate: todayStr,
+    IsActive: true
+  });
+  return { success: true, data: { folderId: folderId } };
+}
+
+function updateFolder(data, session) {
+  if (session.role !== "ADMIN") throw new Error("Chỉ ADMIN mới có quyền cập nhật thư mục!");
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("FOLDER_CHUYEN_DE");
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) throw new Error("Không có thư mục nào!");
+  
+  var folderId = data.folderId;
+  var rowData = sheet.getRange(1, 1, lastRow, sheet.getLastColumn()).getValues();
+  var headers = rowData[0];
+  
+  var idxId = headers.indexOf("FolderID");
+  var idxName = headers.indexOf("FolderName");
+  var idxDesc = headers.indexOf("Description");
+  var idxSort = headers.indexOf("SortOrder");
+  
+  var foundIdx = -1;
+  for (var i = 1; i < rowData.length; i++) {
+    if (rowData[i][idxId] === folderId) {
+      foundIdx = i + 1;
+      break;
+    }
+  }
+  
+  if (foundIdx === -1) throw new Error("Không tìm thấy thư mục: " + folderId);
+  
+  if (data.folderName !== undefined) sheet.getRange(foundIdx, idxName + 1).setValue(data.folderName);
+  if (data.description !== undefined) sheet.getRange(foundIdx, idxDesc + 1).setValue(data.description);
+  if (data.sortOrder !== undefined) sheet.getRange(foundIdx, idxSort + 1).setValue(parseFloat(data.sortOrder) || 99);
+  
+  return { success: true, data: { folderId: folderId } };
+}
+
+function deleteFolder(folderId, session) {
+  if (session.role !== "ADMIN") throw new Error("Chỉ ADMIN mới có quyền xóa thư mục!");
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  
+  var files = getSheetData("FILE_HOC_LIEU");
+  var fileIdsInFolder = files
+    .filter(function(f) { return f.FolderID === folderId; })
+    .map(function(f) { return f.FileID; });
+    
+  if (fileIdsInFolder.length > 0) {
+    var linksSheet = ss.getSheetByName("CLASS_MATERIAL_LINK");
+    if (linksSheet && linksSheet.getLastRow() > 1) {
+      var linksRows = linksSheet.getRange(1, 1, linksSheet.getLastRow(), linksSheet.getLastColumn()).getValues();
+      var idxLinkFileId = linksRows[0].indexOf("FileID");
+      for (var r = linksRows.length - 1; r >= 1; r--) {
+        if (fileIdsInFolder.indexOf(linksRows[r][idxLinkFileId]) !== -1) {
+          linksSheet.deleteRow(r + 1);
+        }
+      }
+    }
+    
+    var filesSheet = ss.getSheetByName("FILE_HOC_LIEU");
+    if (filesSheet && filesSheet.getLastRow() > 1) {
+      var filesRows = filesSheet.getRange(1, 1, filesSheet.getLastRow(), filesSheet.getLastColumn()).getValues();
+      var idxFileId = filesRows[0].indexOf("FileID");
+      for (var r = filesRows.length - 1; r >= 1; r--) {
+        if (fileIdsInFolder.indexOf(filesRows[r][idxFileId]) !== -1) {
+          filesSheet.deleteRow(r + 1);
+        }
+      }
+    }
+  }
+  
+  var foldersSheet = ss.getSheetByName("FOLDER_CHUYEN_DE");
+  if (foldersSheet && foldersSheet.getLastRow() > 1) {
+    var foldersRows = foldersSheet.getRange(1, 1, foldersSheet.getLastRow(), foldersSheet.getLastColumn()).getValues();
+    var idxFolderId = foldersRows[0].indexOf("FolderID");
+    for (var r = foldersRows.length - 1; r >= 1; r--) {
+      if (foldersRows[r][idxFolderId] === folderId) {
+        foldersSheet.deleteRow(r + 1);
+      }
+    }
+  }
+  
+  return { success: true };
+}
+
+function createFilePDF(data, session) {
+  if (session.role !== "ADMIN" && session.role !== "GIAO_VIEN") {
+    throw new Error("Chỉ ADMIN hoặc Giáo viên mới có quyền upload file!");
+  }
+  
+  var fileId = "FILE_" + Utilities.formatDate(new Date(), "GMT+7", "yyyyMMdd") + "_" + Math.floor(100 + Math.random() * 900);
+  var todayStr = Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM-dd");
+  
+  appendRowData("FILE_HOC_LIEU", {
+    FileID: fileId,
+    FolderID: data.folderId,
+    FileName: data.fileName,
+    FileType: "PDF",
+    FileURL: data.fileUrl,
+    ExamID: "",
+    UploadedBy: session.refId,
+    UploadedDate: todayStr,
+    Description: data.description || "",
+    IsGlobal: data.isGlobal === true || data.isGlobal === "TRUE"
+  });
+  
+  return { success: true, data: { fileId: fileId } };
+}
+
+function deleteFile(fileId, session) {
+  if (session.role !== "ADMIN") throw new Error("Chỉ ADMIN mới có quyền xóa file!");
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  
+  var linksSheet = ss.getSheetByName("CLASS_MATERIAL_LINK");
+  if (linksSheet && linksSheet.getLastRow() > 1) {
+    var linksRows = linksSheet.getRange(1, 1, linksSheet.getLastRow(), linksSheet.getLastColumn()).getValues();
+    var idxLinkFileId = linksRows[0].indexOf("FileID");
+    for (var r = linksRows.length - 1; r >= 1; r--) {
+      if (linksRows[r][idxLinkFileId] === fileId) {
+        linksSheet.deleteRow(r + 1);
+      }
+    }
+  }
+  
+  var filesSheet = ss.getSheetByName("FILE_HOC_LIEU");
+  if (filesSheet && filesSheet.getLastRow() > 1) {
+    var filesRows = filesSheet.getRange(1, 1, filesSheet.getLastRow(), filesSheet.getLastColumn()).getValues();
+    var idxFileId = filesRows[0].indexOf("FileID");
+    for (var r = filesRows.length - 1; r >= 1; r--) {
+      if (filesRows[r][idxFileId] === fileId) {
+        filesSheet.deleteRow(r + 1);
+      }
+    }
+  }
+  
+  return { success: true };
+}
+
+function assignMaterialToClass(data, session) {
+  if (session.role !== "ADMIN" && session.role !== "GIAO_VIEN") {
+    throw new Error("Không có quyền gán học liệu!");
+  }
+  
+  var classId = data.classId;
+  var fileId = data.fileId;
+  
+  var classes = getSheetData("LOPHOC");
+  var cls = classes.find(function(c) { return c.ClassID === classId; });
+  if (!cls) throw new Error("Lớp học không tồn tại: " + classId);
+  if (session.role === "GIAO_VIEN" && cls.TeacherID !== session.refId) {
+    throw new Error("Giáo viên không phụ trách lớp này!");
+  }
+  
+  var files = getSheetData("FILE_HOC_LIEU");
+  var fileObj = files.find(function(f) { return f.FileID === fileId; });
+  if (!fileObj) throw new Error("File học liệu không tồn tại: " + fileId);
+  
+  var folders = getSheetData("FOLDER_CHUYEN_DE");
+  var folderObj = folders.find(function(f) { return f.FolderID === fileObj.FolderID; });
+  if (!folderObj) throw new Error("Thư mục của file học liệu không tồn tại!");
+  
+  var classGrade = (cls.Grade || "Lớp 9").trim().toLowerCase();
+  var classLevel = (cls.Level || "Cơ bản").trim().toLowerCase();
+  var classSubject = (cls.Subject || "Toán").trim().toLowerCase();
+  
+  var folderGrade = folderObj.Grade ? folderObj.Grade.trim().toLowerCase() : "";
+  var folderLevel = folderObj.Level ? folderObj.Level.trim().toLowerCase() : "";
+  var folderSubject = folderObj.Subject ? folderObj.Subject.trim().toLowerCase() : "";
+  
+  if (folderGrade && folderGrade !== classGrade) {
+    throw new Error("Khối lớp của thư mục (" + folderObj.Grade + ") không khớp với lớp học (" + cls.Grade + ")");
+  }
+  if (folderLevel && folderLevel !== classLevel) {
+    throw new Error("Trình độ của thư mục (" + folderObj.Level + ") không khớp với lớp học (" + cls.Level + ")");
+  }
+  if (folderSubject && folderSubject !== classSubject) {
+    throw new Error("Môn học của thư mục (" + folderObj.Subject + ") không khớp với lớp học (" + cls.Subject + ")");
+  }
+  
+  var links = getSheetData("CLASS_MATERIAL_LINK");
+  var existingLink = links.find(function(lnk) {
+    return lnk.ClassID === classId && lnk.FileID === fileId && lnk.IsActive !== false && lnk.IsActive !== "FALSE";
+  });
+  if (existingLink) {
+    throw new Error("File học liệu này đã được gán cho lớp rồi!");
+  }
+  
+  var linkId = "LNK_" + Utilities.formatDate(new Date(), "GMT+7", "yyyyMMdd") + "_" + Math.floor(100 + Math.random() * 900);
+  var todayStr = Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM-dd");
+  
+  appendRowData("CLASS_MATERIAL_LINK", {
+    LinkID: linkId,
+    ClassID: classId,
+    FileID: fileId,
+    AssignedBy: session.refId,
+    AssignedDate: todayStr,
+    DueDate: data.dueDate || "",
+    IsVisible: data.isVisible !== undefined ? (data.isVisible === true || data.isVisible === "TRUE") : true,
+    SortOrder: parseFloat(data.sortOrder) || 99,
+    MaxAttempts: data.maxAttempts !== undefined && data.maxAttempts !== "" ? parseInt(data.maxAttempts) : "",
+    TopicName: data.folderName || "",
+    IsActive: true
+  });
+  
+  return { success: true, data: { linkId: linkId } };
+}
+
+function removeMaterialFromClass(data, session) {
+  if (session.role !== "ADMIN" && session.role !== "GIAO_VIEN") {
+    throw new Error("Không có quyền gỡ học liệu!");
+  }
+  
+  var classId = data.classId;
+  var fileId = data.fileId;
+  
+  if (session.role === "GIAO_VIEN") {
+    var classes = getSheetData("LOPHOC");
+    var cls = classes.find(function(c) { return c.ClassID === classId; });
+    if (!cls || cls.TeacherID !== session.refId) {
+      throw new Error("Giáo viên không phụ trách lớp này!");
+    }
+  }
+  
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("CLASS_MATERIAL_LINK");
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) throw new Error("Không có liên kết học liệu nào!");
+  
+  var rowData = sheet.getRange(1, 1, lastRow, sheet.getLastColumn()).getValues();
+  var headers = rowData[0];
+  
+  var idxClass = headers.indexOf("ClassID");
+  var idxFile = headers.indexOf("FileID");
+  var idxActive = headers.indexOf("IsActive");
+  
+  var count = 0;
+  for (var i = 1; i < rowData.length; i++) {
+    if (rowData[i][idxClass] === classId && rowData[i][idxFile] === fileId) {
+      sheet.getRange(i + 1, idxActive + 1).setValue(false);
+      count++;
+    }
+  }
+  
+  return { success: true, data: { updatedCount: count } };
+}
+
+function updateMaterialLink(data, session) {
+  if (session.role !== "ADMIN" && session.role !== "GIAO_VIEN") {
+    throw new Error("Không có quyền cập nhật liên kết học liệu!");
+  }
+  
+  var linkId = data.linkId;
+  
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("CLASS_MATERIAL_LINK");
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) throw new Error("Không có liên kết học liệu nào!");
+  
+  var rowData = sheet.getRange(1, 1, lastRow, sheet.getLastColumn()).getValues();
+  var headers = rowData[0];
+  
+  var idxId = headers.indexOf("LinkID");
+  var idxClass = headers.indexOf("ClassID");
+  var idxDue = headers.indexOf("DueDate");
+  var idxVisible = headers.indexOf("IsVisible");
+  var idxSort = headers.indexOf("SortOrder");
+  var idxMaxAttempts = headers.indexOf("MaxAttempts");
+  
+  var foundIdx = -1;
+  for (var i = 1; i < rowData.length; i++) {
+    if (rowData[i][idxId] === linkId) {
+      foundIdx = i + 1;
+      break;
+    }
+  }
+  
+  if (foundIdx === -1) throw new Error("Không tìm thấy liên kết học liệu: " + linkId);
+  
+  if (session.role === "GIAO_VIEN") {
+    var classId = rowData[foundIdx - 1][idxClass];
+    var classes = getSheetData("LOPHOC");
+    var cls = classes.find(function(c) { return c.ClassID === classId; });
+    if (!cls || cls.TeacherID !== session.refId) {
+      throw new Error("Giáo viên không phụ trách lớp này!");
+    }
+  }
+  
+  if (data.dueDate !== undefined) sheet.getRange(foundIdx, idxDue + 1).setValue(data.dueDate);
+  if (data.isVisible !== undefined) sheet.getRange(foundIdx, idxVisible + 1).setValue(data.isVisible === true || data.isVisible === "TRUE");
+  if (data.sortOrder !== undefined) sheet.getRange(foundIdx, idxSort + 1).setValue(parseFloat(data.sortOrder) || 99);
+  if (data.maxAttempts !== undefined) sheet.getRange(foundIdx, idxMaxAttempts + 1).setValue(data.maxAttempts !== "" && data.maxAttempts !== null ? parseInt(data.maxAttempts) : "");
+  
+  return { success: true };
+}
+
+
+// --- MODULE 2: SOẠN ĐỀ THI ---
+
+function createExamTemplate(data, session) {
+  if (session.role !== "ADMIN") throw new Error("Chỉ ADMIN mới có quyền tạo template!");
+  var templateId = "TPL_EX_" + Math.floor(100 + Math.random() * 900);
+  
+  appendRowData("EXAM_TEMPLATE", {
+    TemplateID: templateId,
+    TemplateName: data.templateName,
+    Subject: data.subject,
+    Grade: data.grade,
+    TotalDuration: parseFloat(data.totalDuration) || 90,
+    MaxScore: parseFloat(data.maxScore) || 10,
+    Description: data.description || "",
+    CreatedBy: session.refId
+  });
+  
+  if (data.sections && data.sections.length > 0) {
+    data.sections.forEach(function(s, idx) {
+      var sectionTypeId = "SCT_" + Math.floor(100 + Math.random() * 900);
+      appendRowData("EXAM_SECTION_TYPE", {
+        SectionTypeID: sectionTypeId,
+        TemplateID: templateId,
+        SectionName: s.sectionName,
+        QuestionType: s.questionType,
+        QuestionCount: parseInt(s.questionCount) || 1,
+        PointsPerQuestion: parseFloat(s.pointsPerQuestion) || 0,
+        PointsPerSubQuestion: s.pointsPerSubQuestion !== undefined && s.pointsPerSubQuestion !== "" ? parseFloat(s.pointsPerSubQuestion) : "",
+        SortOrder: idx + 1,
+        AIParsePrompt: s.aiParsePrompt || ""
+      });
+    });
+  }
+  
+  return { success: true, data: { templateId: templateId } };
+}
+
+function updateExamTemplate(data, session) {
+  if (session.role !== "ADMIN") throw new Error("Chỉ ADMIN mới có quyền sửa template!");
+  var templateId = data.templateId;
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("EXAM_TEMPLATE");
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) throw new Error("Không có template nào!");
+  
+  var rowData = sheet.getRange(1, 1, lastRow, sheet.getLastColumn()).getValues();
+  var headers = rowData[0];
+  
+  var idxId = headers.indexOf("TemplateID");
+  var idxName = headers.indexOf("TemplateName");
+  var idxDuration = headers.indexOf("TotalDuration");
+  var idxMax = headers.indexOf("MaxScore");
+  
+  var foundIdx = -1;
+  for (var i = 1; i < rowData.length; i++) {
+    if (rowData[i][idxId] === templateId) {
+      foundIdx = i + 1;
+      break;
+    }
+  }
+  
+  if (foundIdx === -1) throw new Error("Không tìm thấy template!");
+  
+  if (data.templateName !== undefined) sheet.getRange(foundIdx, idxName + 1).setValue(data.templateName);
+  if (data.totalDuration !== undefined) sheet.getRange(foundIdx, idxDuration + 1).setValue(parseFloat(data.totalDuration));
+  if (data.maxScore !== undefined) sheet.getRange(foundIdx, idxMax + 1).setValue(parseFloat(data.maxScore));
+  
+  if (data.sections && data.sections.length > 0) {
+    var sectSheet = ss.getSheetByName("EXAM_SECTION_TYPE");
+    if (sectSheet && sectSheet.getLastRow() > 1) {
+      var sectRows = sectSheet.getRange(1, 1, sectSheet.getLastRow(), sectSheet.getLastColumn()).getValues();
+      var idxSectTemplId = sectRows[0].indexOf("TemplateID");
+      for (var r = sectRows.length - 1; r >= 1; r--) {
+        if (sectRows[r][idxSectTemplId] === templateId) {
+          sectSheet.deleteRow(r + 1);
+        }
+      }
+    }
+    
+    data.sections.forEach(function(s, idx) {
+      var sectionTypeId = "SCT_" + Math.floor(100 + Math.random() * 900);
+      appendRowData("EXAM_SECTION_TYPE", {
+        SectionTypeID: sectionTypeId,
+        TemplateID: templateId,
+        SectionName: s.sectionName,
+        QuestionType: s.questionType,
+        QuestionCount: parseInt(s.questionCount) || 1,
+        PointsPerQuestion: parseFloat(s.pointsPerQuestion) || 0,
+        PointsPerSubQuestion: s.pointsPerSubQuestion !== undefined && s.pointsPerSubQuestion !== "" ? parseFloat(s.pointsPerSubQuestion) : "",
+        SortOrder: idx + 1,
+        AIParsePrompt: s.aiParsePrompt || ""
+      });
+    });
+  }
+  
+  return { success: true };
+}
+
+function getExamTemplatesList() {
+  var templates = getSheetData("EXAM_TEMPLATE");
+  var sections = getSheetData("EXAM_SECTION_TYPE");
+  
+  return templates.map(function(t) {
+    var templateSections = sections
+      .filter(function(s) { return s.TemplateID === t.TemplateID; })
+      .sort(function(a, b) { return a.SortOrder - b.SortOrder; })
+      .map(function(s) {
+        return {
+          sectionTypeId: s.SectionTypeID,
+          sectionName: s.SectionName,
+          questionType: s.QuestionType,
+          questionCount: parseInt(s.QuestionCount) || 0,
+          pointsPerQuestion: parseFloat(s.PointsPerQuestion) || 0,
+          pointsPerSubQuestion: s.PointsPerSubQuestion !== "" && s.PointsPerSubQuestion !== null ? parseFloat(s.PointsPerSubQuestion) : null,
+          sortOrder: s.SortOrder,
+          aiParsePrompt: s.AIParsePrompt
+        };
+      });
+      
+    return {
+      templateId: t.TemplateID,
+      templateName: t.TemplateName,
+      subject: t.Subject,
+      grade: t.Grade,
+      totalDuration: parseFloat(t.TotalDuration) || 90,
+      maxScore: parseFloat(t.MaxScore) || 10,
+      description: t.Description,
+      createdBy: t.CreatedBy,
+      sections: templateSections
+    };
+  });
+}
+
+function createExam(data, session) {
+  if (session.role !== "ADMIN" && session.role !== "GIAO_VIEN") {
+    throw new Error("Không có quyền tạo đề thi!");
+  }
+  
+  var examId = "EXM_" + Utilities.formatDate(new Date(), "GMT+7", "yyyyMMdd") + "_" + Math.floor(100 + Math.random() * 900);
+  var todayStr = Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM-dd");
+  
+  var templates = getSheetData("EXAM_TEMPLATE");
+  var template = templates.find(function(t) { return t.TemplateID === data.templateId; });
+  if (!template) throw new Error("Template không tồn tại!");
+  
+  var sections = getSheetData("EXAM_SECTION_TYPE");
+  var templateSections = sections.filter(function(s) { return s.TemplateID === data.templateId; });
+  var totalPoints = 0;
+  templateSections.forEach(function(s) {
+    totalPoints += (parseInt(s.QuestionCount) || 0) * (parseFloat(s.PointsPerQuestion) || 0);
+  });
+  
+  appendRowData("EXAM_BANK", {
+    ExamID: examId,
+    TemplateID: data.templateId,
+    ExamName: data.examName,
+    Subject: template.Subject,
+    Grade: template.Grade,
+    DurationMinutes: data.durationMinutes !== undefined && data.durationMinutes !== "" ? parseFloat(data.durationMinutes) : parseFloat(template.TotalDuration),
+    TotalPoints: totalPoints,
+    CreatedBy: session.refId,
+    CreatedDate: todayStr,
+    Status: "DRAFT",
+    ShuffleQuestions: data.shuffleQuestions === true || data.shuffleQuestions === "TRUE",
+    ShuffleOptions: data.shuffleOptions === true || data.shuffleOptions === "TRUE"
+  });
+  
+  return { success: true, data: { examId: examId } };
+}
+
+function createCustomExam(data, session) {
+  if (session.role !== "ADMIN" && session.role !== "GIAO_VIEN") {
+    throw new Error("Không có quyền tạo đề thi!");
+  }
+  
+  var todayStr = Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM-dd");
+  var templateId = "TPL_CSTM_" + Utilities.formatDate(new Date(), "GMT+7", "yyyyMMddHHmmss");
+  var examId = "EXM_" + Utilities.formatDate(new Date(), "GMT+7", "yyyyMMdd") + "_" + Math.floor(100 + Math.random() * 900);
+  
+  var totalDuration = parseFloat(data.durationMinutes) || 90;
+  var totalPoints = 0;
+  var targetFolderId = data.targetFolderId || "";
+  
+  // 1. Create hidden Template
+  appendRowData("EXAM_TEMPLATE", {
+    TemplateID: templateId,
+    TemplateName: data.examName + " (Custom)",
+    Subject: data.subject || "Toán",
+    Grade: data.grade || "Lớp 9",
+    TotalDuration: totalDuration,
+    MaxScore: 10,
+    Description: "Auto-generated template for custom exam",
+    CreatedBy: session.refId
+  });
+  
+  // 2. Create Sections
+  if (data.sections && data.sections.length > 0) {
+    data.sections.forEach(function(s, idx) {
+      var sectionTypeId = "SCT_CSTM_" + Utilities.formatDate(new Date(), "GMT+7", "yyyyMMddHHmmss") + idx;
+      s.generatedSectionId = sectionTypeId; // Save it to link questions later
+      
+      var sPointsPerQ = parseFloat(s.pointsPerQuestion) || 0;
+      var sQCount = parseInt(s.questionCount) || 1;
+      totalPoints += sQCount * sPointsPerQ;
+      
+      appendRowData("EXAM_SECTION_TYPE", {
+        SectionTypeID: sectionTypeId,
+        TemplateID: templateId,
+        SectionName: s.sectionName || ("Phần " + (idx + 1)),
+        QuestionType: s.questionType || "MCQ",
+        QuestionCount: sQCount,
+        PointsPerQuestion: sPointsPerQ,
+        PointsPerSubQuestion: "",
+        SortOrder: idx + 1,
+        AIParsePrompt: ""
+      });
+    });
+  }
+  
+  // 3. Create Exam
+  appendRowData("EXAM_BANK", {
+    ExamID: examId,
+    TemplateID: templateId,
+    ExamName: data.examName,
+    Subject: data.subject || "Toán",
+    Grade: data.grade || "Lớp 9",
+    DurationMinutes: totalDuration,
+    TotalPoints: totalPoints,
+    CreatedBy: session.refId,
+    CreatedDate: todayStr,
+    Status: "PUBLISHED", // Auto publish so it's ready to use
+    ShuffleQuestions: false,
+    ShuffleOptions: false
+  });
+  
+  // 4. Create Questions
+  var questionCounter = 1;
+  if (data.sections && data.sections.length > 0) {
+    data.sections.forEach(function(s) {
+      if (s.parsedQuestions && s.parsedQuestions.length > 0) {
+        s.parsedQuestions.forEach(function(q) {
+          var qId = "Q_" + Utilities.formatDate(new Date(), "GMT+7", "yyyyMMddHHmmss") + "_" + Math.floor(100 + Math.random() * 900);
+          appendRowData("EXAM_QUESTION", {
+            QuestionID: qId,
+            ExamID: examId,
+            SectionTypeID: s.generatedSectionId,
+            QuestionNumber: questionCounter++,
+            QuestionContent: q.questionContent || "",
+            OptionA: q.optionA || "",
+            OptionB: q.optionB || "",
+            OptionC: q.optionC || "",
+            OptionD: q.optionD || "",
+            SubQuestions: q.subQuestions ? JSON.stringify(q.subQuestions) : "",
+            CorrectAnswer: q.correctAnswer || "",
+            Solution: q.solution || "",
+            Difficulty: q.difficulty || "Trung bình"
+          });
+        });
+      }
+    });
+  }
+  
+  // 5. Automatically create FILE_HOC_LIEU
+  var fileId = "FILE_" + Utilities.formatDate(new Date(), "GMT+7", "yyyyMMddHHmmss") + "_" + Math.floor(100 + Math.random() * 900);
+  appendRowData("FILE_HOC_LIEU", {
+    FileID: fileId,
+    FolderID: targetFolderId,
+    FileName: data.examName,
+    FileType: "EXAM",
+    FileURL: "",
+    ExamID: examId,
+    Description: "Đề thi tự sinh từ Exam Builder",
+    UploadedBy: session.refId,
+    UploadDate: todayStr
+  });
+  
+  return { success: true, data: { examId: examId, fileId: fileId } };
+}
+
+function parseLatexSection(data, session) {
+  if (session.role !== "ADMIN" && session.role !== "GIAO_VIEN") {
+    throw new Error("Không có quyền biên soạn đề!");
+  }
+  
+  var latex = data.latex || "";
+  var questionType = data.questionType || "MCQ";
+  var expectedCount = parseInt(data.expectedCount) || 1;
+  
+  var systemPrompt = "";
+  if (questionType === "MCQ") {
+    systemPrompt = "Bạn là một hệ thống phân tích đề thi thông minh. Trích xuất văn bản LaTeX thành MẢNG JSON hợp lệ chứa đúng " + expectedCount + " phần tử với schema: [{questionContent: string, optionA: string, optionB: string, optionC: string, optionD: string, correctAnswer: string, solution: string}]. QUAN TRỌNG: Hãy TỰ GIẢI các câu hỏi toán học này để tự động điền đáp án đúng (A, B, C, hoặc D) vào 'correctAnswer', và viết lời giải chi tiết từng bước vào 'solution'. TRẢ VỀ ĐÚNG MẢNG JSON, KHÔNG THÊM BẤT KỲ VĂN BẢN NÀO KHÁC. Giữ nguyên định dạng LaTeX.";
+  } else if (questionType === "TRUE_FALSE") {
+    systemPrompt = "Bạn là một hệ thống phân tích đề thi thông minh. Trích xuất văn bản LaTeX thành MẢNG JSON hợp lệ chứa đúng " + expectedCount + " phần tử với schema: [{questionContent: string, subQuestions: [{content: string, isTrue: boolean}], solution: string}]. Mỗi câu phải có chính xác 4 subQuestions tương ứng với 4 ý a,b,c,d. QUAN TRỌNG: Hãy TỰ GIẢI các ý này để điền true/false vào 'isTrue', và viết lời giải chi tiết vào 'solution'. TRẢ VỀ ĐÚNG MẢNG JSON. Giữ nguyên định dạng LaTeX.";
+  } else if (questionType === "SHORT_ANSWER") {
+    systemPrompt = "Bạn là một hệ thống phân tích đề thi thông minh. Trích xuất văn bản LaTeX thành MẢNG JSON hợp lệ chứa đúng " + expectedCount + " phần tử với schema: [{questionContent: string, correctAnswer: string, solution: string}]. QUAN TRỌNG: Hãy TỰ GIẢI các câu hỏi này để tự động điền kết quả cuối cùng vào 'correctAnswer', và viết lời giải chi tiết vào 'solution'. TRẢ VỀ ĐÚNG MẢNG JSON. Giữ nguyên định dạng LaTeX.";
+  } else {
+    systemPrompt = "Bạn là một hệ thống phân tích đề thi. Trích xuất LaTeX thành MẢNG JSON hợp lệ. TRẢ VỀ ĐÚNG MẢNG JSON.";
+  }
+  
+  var parsedQuestions = [];
+  var apiKey = "YOUR_GEMINI_API_KEY_HERE";
+  
+  if (apiKey) {
+    try {
+      var userMessage = "Phân tích đoạn LaTeX sau:\n\n" + latex;
+      var aiResult = callGeminiAPI(apiKey, systemPrompt, userMessage);
+      parsedQuestions = JSON.parse(aiResult);
+    } catch (err) {
+      Logger.log("Gemini API failed, falling back to regex: " + err.toString());
+      parsedQuestions = fallbackParseLatex(latex, expectedCount);
+    }
+  } else {
+    Logger.log("No Gemini API Key found, using fallback regex parser.");
+    parsedQuestions = fallbackParseLatex(latex, expectedCount);
+  }
+  
+  if (parsedQuestions.length !== expectedCount) {
+    throw new Error("AI phân tách được " + parsedQuestions.length + " câu, nhưng Section yêu cầu đúng " + expectedCount + " câu! Vui lòng kiểm tra lại cấu trúc đề hoặc chỉnh sửa LaTeX.");
+  }
+  
+  return { success: true, data: parsedQuestions };
+}
+
+function getAnthropicApiKey() {
+  try {
+    return PropertiesService.getScriptProperties().getProperty("ANTHROPIC_API_KEY") || "";
+  } catch(e) {
+    return "";
+  }
+}
+
+function callGeminiAPI(apiKey, systemPrompt, userMessage) {
+  var url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + apiKey;
+  var payload = {
+    systemInstruction: {
+      parts: [{ text: systemPrompt }]
+    },
+    contents: [{
+      parts: [{ text: userMessage }]
+    }],
+    generationConfig: {
+      temperature: 0.1,
+      responseMimeType: "application/json"
+    }
+  };
+  
+  var options = {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  };
+  
+  var response = UrlFetchApp.fetch(url, options);
+  var responseText = response.getContentText();
+  
+  if (response.getResponseCode() >= 400) {
+    throw new Error("Gemini API Error: " + responseText);
+  }
+  
+  var json = JSON.parse(responseText);
+  if (json.candidates && json.candidates.length > 0) {
+    return json.candidates[0].content.parts[0].text;
+  } else {
+    throw new Error("Invalid response format from Gemini: " + responseText);
+  }
+}
+
+function callAnthropicAPI(apiKey, systemPrompt, userMessage) {
+  var url = "https://api.anthropic.com/v1/messages";
+  var payload = {
+    model: "claude-3-5-sonnet-20241022",
+    max_tokens: 4000,
+    system: systemPrompt,
+    messages: [{ role: "user", content: userMessage }]
+  };
+  var options = {
+    method: "post",
+    contentType: "application/json",
+    headers: {
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01"
+    },
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  };
+  
+  var response = UrlFetchApp.fetch(url, options);
+  var responseText = response.getContentText();
+  var code = response.getResponseCode();
+  
+  if (code !== 200) {
+    throw new Error("Anthropic API error (" + code + "): " + responseText);
+  }
+  
+  var json = JSON.parse(responseText);
+  return json.content[0].text;
+}
+
+function fallbackParseLatex(latex, expectedCount) {
+  var questions = [];
+  var qMatches = [];
+  var qRegex = /\\begin\{question\}([\s\S]*?)\\end\{question\}/g;
+  var match;
+  while ((match = qRegex.exec(latex)) !== null) {
+    qMatches.push(match[1].trim());
+  }
+  
+  for (var i = 0; i < qMatches.length; i++) {
+    var content = qMatches[i];
+    var questionContent = content;
+    var optionA = "";
+    var optionB = "";
+    var optionC = "";
+    var optionD = "";
+    var correctAnswer = "";
+    var solution = "";
+    
+    var optMatch = /\\begin\{options\}([\s\S]*?)\\end\{options\}/.exec(content);
+    if (optMatch) {
+      var optBody = optMatch[1];
+      var aMatch = /\\optionA\{([\s\S]*?)\}/.exec(optBody);
+      var bMatch = /\\optionB\{([\s\S]*?)\}/.exec(optBody);
+      var cMatch = /\\optionC\{([\s\S]*?)\}/.exec(optBody);
+      var dMatch = /\\optionD\{([\s\S]*?)\}/.exec(optBody);
+      
+      if (aMatch) optionA = aMatch[1].trim();
+      if (bMatch) optionB = bMatch[1].trim();
+      if (cMatch) optionC = cMatch[1].trim();
+      if (dMatch) optionD = dMatch[1].trim();
+      
+      questionContent = questionContent.replace(/\\begin\{options\}[\s\S]*?\\end\{options\}/, "").trim();
+    }
+    
+    var ansMatch = /\\begin\{answer\}([\s\S]*?)\\end\{answer\}/.exec(content);
+    if (ansMatch) {
+      correctAnswer = ansMatch[1].trim();
+      questionContent = questionContent.replace(/\\begin\{answer\}[\s\S]*?\\end\{answer\}/, "").trim();
+    }
+    
+    var solMatch = /\\begin\{solution\}([\s\S]*?)\\end\{solution\}/.exec(content);
+    if (solMatch) {
+      solution = solMatch[1].trim();
+      questionContent = questionContent.replace(/\\begin\{solution\}[\s\S]*?\\end\{solution\}/, "").trim();
+    }
+    
+    questions.push({
+      questionContent: questionContent,
+      optionA: optionA,
+      optionB: optionB,
+      optionC: optionC,
+      optionD: optionD,
+      correctAnswer: correctAnswer,
+      solution: solution
+    });
+  }
+  
+  while (questions.length < expectedCount) {
+    questions.push({
+      questionContent: "Câu hỏi nháp " + (questions.length + 1) + " (Vui lòng điền nội dung LaTeX)",
+      optionA: "Đáp án A",
+      optionB: "Đáp án B",
+      optionC: "Đáp án C",
+      optionD: "Đáp án D",
+      correctAnswer: "A",
+      solution: "Hướng dẫn giải chi tiết"
+    });
+  }
+  
+  if (questions.length > expectedCount) {
+    questions = questions.slice(0, expectedCount);
+  }
+  
+  return questions;
+}
+
+function saveExamSection(data, session) {
+  if (session.role !== "ADMIN" && session.role !== "GIAO_VIEN") {
+    throw new Error("Không có quyền biên soạn đề!");
+  }
+  
+  var examId = data.examId;
+  var sectionTypeId = data.sectionTypeId;
+  var questions = data.questions;
+  
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("EXAM_QUESTION");
+  var lastRow = sheet.getLastRow();
+  
+  if (lastRow > 1) {
+    var rowData = sheet.getRange(1, 1, lastRow, sheet.getLastColumn()).getValues();
+    var idxExamId = rowData[0].indexOf("ExamID");
+    var idxSecType = rowData[0].indexOf("SectionTypeID");
+    for (var r = rowData.length - 1; r >= 1; r--) {
+      if (rowData[r][idxExamId] === examId && rowData[r][idxSecType] === sectionTypeId) {
+        sheet.deleteRow(r + 1);
+      }
+    }
+  }
+  
+  questions.forEach(function(q, idx) {
+    var questionId = "QST_" + Utilities.formatDate(new Date(), "GMT+7", "yyyyMMdd") + "_" + Math.floor(1000 + Math.random() * 9000);
+    appendRowData("EXAM_QUESTION", {
+      QuestionID: questionId,
+      ExamID: examId,
+      SectionTypeID: sectionTypeId,
+      QuestionNumber: idx + 1,
+      QuestionContent: q.questionContent,
+      OptionA: q.optionA || "",
+      OptionB: q.optionB || "",
+      OptionC: q.optionC || "",
+      OptionD: q.optionD || "",
+      SubQuestions: q.subQuestions ? JSON.stringify(q.subQuestions) : "",
+      CorrectAnswer: q.correctAnswer || "",
+      Solution: q.solution || "",
+      Difficulty: q.difficulty || "MEDIUM"
+    });
+  });
+  
+  return { success: true };
+}
+
+function publishExam(data, session) {
+  if (session.role !== "ADMIN" && session.role !== "GIAO_VIEN") {
+    throw new Error("Không có quyền xuất bản đề!");
+  }
+  
+  var examId = data.examId;
+  
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var bankSheet = ss.getSheetByName("EXAM_BANK");
+  var lastRow = bankSheet.getLastRow();
+  if (lastRow <= 1) throw new Error("Không có đề thi nào!");
+  
+  var rowData = bankSheet.getRange(1, 1, lastRow, bankSheet.getLastColumn()).getValues();
+  var headers = rowData[0];
+  
+  var idxId = headers.indexOf("ExamID");
+  var idxStatus = headers.indexOf("Status");
+  var idxSubject = headers.indexOf("Subject");
+  var idxGrade = headers.indexOf("Grade");
+  var idxName = headers.indexOf("ExamName");
+  
+  var foundIdx = -1;
+  for (var i = 1; i < rowData.length; i++) {
+    if (rowData[i][idxId] === examId) {
+      foundIdx = i + 1;
+      break;
+    }
+  }
+  
+  if (foundIdx === -1) throw new Error("Không tìm thấy đề thi!");
+  
+  if (rowData[foundIdx - 1][idxStatus] === "PUBLISHED") {
+    return { success: true, message: "Đề thi đã được xuất bản trước đó." };
+  }
+  
+  bankSheet.getRange(foundIdx, idxStatus + 1).setValue("PUBLISHED");
+  
+  var examSubject = rowData[foundIdx - 1][idxSubject];
+  var examGrade = rowData[foundIdx - 1][idxGrade];
+  var examName = rowData[foundIdx - 1][idxName];
+  
+  var folderId = data.folderId;
+  if (!folderId) {
+    var folders = getSheetData("FOLDER_CHUYEN_DE");
+    var matchedFolder = folders.find(function(f) {
+      return (f.IsActive === true || f.IsActive === "TRUE") &&
+             (f.Subject || "").trim().toLowerCase() === (examSubject || "").trim().toLowerCase() &&
+             (f.Grade || "").trim().toLowerCase() === (examGrade || "").trim().toLowerCase();
+    });
+    
+    if (matchedFolder) {
+      folderId = matchedFolder.FolderID;
+    } else {
+      folderId = "FLD_" + Utilities.formatDate(new Date(), "GMT+7", "yyyyMMdd") + "_" + Math.floor(100 + Math.random() * 900);
+      var todayStr = Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM-dd");
+      appendRowData("FOLDER_CHUYEN_DE", {
+        FolderID: folderId,
+        FolderName: "Đề thi " + examSubject + " " + examGrade,
+        Subject: examSubject,
+        Grade: examGrade,
+        Level: "Nâng cao",
+        SortOrder: 99,
+        Description: "Thư mục đề thi tự động tạo khi xuất bản đề.",
+        CreatedBy: session.refId,
+        CreatedDate: todayStr,
+        IsActive: true
+      });
+    }
+  }
+  
+  var fileId = "FILE_" + Utilities.formatDate(new Date(), "GMT+7", "yyyyMMdd") + "_" + Math.floor(100 + Math.random() * 900);
+  var todayStr = Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM-dd");
+  
+  appendRowData("FILE_HOC_LIEU", {
+    FileID: fileId,
+    FolderID: folderId,
+    FileName: examName,
+    FileType: "EXAM",
+    FileURL: "",
+    ExamID: examId,
+    UploadedBy: session.refId,
+    UploadedDate: todayStr,
+    Description: "Đề thi online tự sinh từ Exam Builder.",
+    IsGlobal: false
+  });
+  
+  return { success: true, data: { fileId: fileId } };
+}
+
+function archiveExam(data, session) {
+  if (session.role !== "ADMIN" && session.role !== "GIAO_VIEN") {
+    throw new Error("Không có quyền lưu trữ đề!");
+  }
+  var examId = data.examId;
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("EXAM_BANK");
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) throw new Error("Không có đề thi nào!");
+  
+  var rowData = sheet.getRange(1, 1, lastRow, sheet.getLastColumn()).getValues();
+  var idxId = rowData[0].indexOf("ExamID");
+  var idxStatus = rowData[0].indexOf("Status");
+  
+  for (var i = 1; i < rowData.length; i++) {
+    if (rowData[i][idxId] === examId) {
+      sheet.getRange(i + 1, idxStatus + 1).setValue("ARCHIVED");
+      break;
+    }
+  }
+  
+  return { success: true };
+}
+
+function getExamDetail(examId, session) {
+  if (session.role !== "ADMIN" && session.role !== "GIAO_VIEN") {
+    throw new Error("Không có quyền xem chi tiết đề thi!");
+  }
+  
+  var exams = getSheetData("EXAM_BANK");
+  var exam = exams.find(function(e) { return e.ExamID === examId; });
+  if (!exam) throw new Error("Không tìm thấy đề thi!");
+  
+  var questions = getSheetData("EXAM_QUESTION");
+  var examQuestions = questions
+    .filter(function(q) { return q.ExamID === examId; })
+    .sort(function(a, b) { return a.QuestionNumber - b.QuestionNumber; })
+    .map(function(q) {
+      return {
+        questionId: q.QuestionID,
+        examId: q.ExamID,
+        sectionTypeId: q.SectionTypeID,
+        questionNumber: q.QuestionNumber,
+        questionContent: q.QuestionContent,
+        optionA: q.OptionA,
+        optionB: q.OptionB,
+        optionC: q.OptionC,
+        optionD: q.OptionD,
+        subQuestions: q.SubQuestions ? JSON.parse(q.SubQuestions) : null,
+        correctAnswer: q.CorrectAnswer,
+        solution: q.Solution,
+        difficulty: q.Difficulty
+      };
+    });
+    
+  return {
+    examId: exam.ExamID,
+    templateId: exam.TemplateID,
+    examName: exam.ExamName,
+    subject: exam.Subject,
+    grade: exam.Grade,
+    durationMinutes: parseFloat(exam.DurationMinutes),
+    totalPoints: parseFloat(exam.TotalPoints),
+    status: exam.Status,
+    shuffleQuestions: exam.ShuffleQuestions === true || exam.ShuffleQuestions === "TRUE",
+    shuffleOptions: exam.ShuffleOptions === true || exam.ShuffleOptions === "TRUE",
+    questions: examQuestions
+  };
+}
+
+
+// --- MODULE 3: THI ONLINE BẤM GIỜ ---
+
+function startExam(classId, examId, session) {
+  if (session.role !== "HOC_VIEN" && session.role !== "ADMIN" && session.role !== "GIAO_VIEN") {
+    throw new Error("Chỉ học viên mới được làm bài thi!");
+  }
+  
+  var exams = getSheetData("EXAM_BANK");
+  var exam = exams.find(function(e) { return e.ExamID === examId; });
+  if (!exam || exam.Status !== "PUBLISHED") {
+    throw new Error("Đề thi không khả dụng hoặc chưa xuất bản!");
+  }
+  
+  var files = getSheetData("FILE_HOC_LIEU");
+  var fileObj = files.find(function(f) { return f.ExamID === examId && f.FileType === "EXAM"; });
+  if (!fileObj) throw new Error("Học liệu đề thi không tìm thấy trong kho!");
+  
+  var links = getSheetData("CLASS_MATERIAL_LINK");
+  var linkObj = links.find(function(lnk) {
+    return lnk.ClassID === classId && 
+           lnk.FileID === fileObj.FileID && 
+           lnk.IsActive !== false && 
+           lnk.IsActive !== "FALSE" &&
+           lnk.IsVisible !== false && 
+           lnk.IsVisible !== "FALSE";
+  });
+  if (!linkObj) throw new Error("Bài thi này chưa được gán cho lớp của bạn!");
+  
+  var todayStr = Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM-dd");
+  
+  if (linkObj.DueDate) {
+    var dueDateStr = parseDateToString(linkObj.DueDate);
+    if (todayStr > dueDateStr) {
+      throw new Error("Đã quá hạn nộp bài thi (" + dueDateStr + ")!");
+    }
+  }
+  
+  var attempts = getSheetData("EXAM_ATTEMPT");
+  var studentAttempts = attempts.filter(function(att) {
+    return att.StudentID === session.refId && 
+           att.ExamID === examId && 
+           att.ClassID === classId;
+  });
+  
+  var attemptCount = studentAttempts.length;
+  var maxAttempts = (linkObj.MaxAttempts !== "" && linkObj.MaxAttempts !== null && linkObj.MaxAttempts !== undefined) ? parseInt(linkObj.MaxAttempts) : null;
+  if (maxAttempts !== null && attemptCount >= maxAttempts) {
+    throw new Error("Bạn đã hết lượt làm bài thi này (Giới hạn: " + maxAttempts + " lần)!");
+  }
+  
+  var attemptId = "ATT_EX_" + Utilities.formatDate(new Date(), "GMT+7", "yyyyMMdd") + "_" + Math.floor(1000 + Math.random() * 9000);
+  var startTime = new Date().toISOString();
+  var nextAttemptNumber = attemptCount + 1;
+  
+  var questions = getSheetData("EXAM_QUESTION");
+  var examQuestions = questions.filter(function(q) { return q.ExamID === examId; });
+  
+  var questionIds = examQuestions.map(function(q) { return q.QuestionID; });
+  var shuffleEnabled = exam.ShuffleQuestions === true || exam.ShuffleQuestions === "TRUE";
+  if (shuffleEnabled) {
+    questionIds = shuffleArray(questionIds);
+  }
+  
+  appendRowData("EXAM_ATTEMPT", {
+    AttemptID: attemptId,
+    StudentID: session.refId,
+    ExamID: examId,
+    ClassID: classId,
+    LinkID: linkObj.LinkID,
+    StartTime: startTime,
+    SubmitTime: "",
+    DurationSeconds: "",
+    Status: "IN_PROGRESS",
+    TotalScore: "",
+    MaxScore: parseFloat(exam.TotalPoints) || 10,
+    AttemptNumber: nextAttemptNumber,
+    QuestionOrder: shuffleEnabled ? JSON.stringify(questionIds) : ""
+  });
+  
+  var returnedQuestions = [];
+  if (shuffleEnabled) {
+    questionIds.forEach(function(qId) {
+      var q = examQuestions.find(function(qe) { return qe.QuestionID === qId; });
+      if (q) returnedQuestions.push(q);
+    });
+  } else {
+    returnedQuestions = examQuestions.sort(function(a, b) { return a.QuestionNumber - b.QuestionNumber; });
+  }
+  
+  var sanitizedQuestions = returnedQuestions.map(function(q) {
+    return {
+      questionId: q.QuestionID,
+      examId: q.ExamID,
+      sectionTypeId: q.SectionTypeID,
+      questionNumber: q.QuestionNumber,
+      questionContent: q.QuestionContent,
+      optionA: q.OptionA,
+      optionB: q.OptionB,
+      optionC: q.OptionC,
+      optionD: q.OptionD,
+      subQuestions: q.SubQuestions ? JSON.parse(q.SubQuestions) : null,
+      difficulty: q.Difficulty
+    };
+  });
+  
+  return {
+    success: true,
+    data: {
+      attemptId: attemptId,
+      examId: exam.ExamID,
+      examName: exam.ExamName,
+      durationMinutes: parseFloat(exam.DurationMinutes),
+      startTime: startTime,
+      attemptNumber: nextAttemptNumber,
+      questions: sanitizedQuestions
+    }
+  };
+}
+
+function shuffleArray(arr) {
+  var newArr = arr.slice();
+  for (var i = newArr.length - 1; i > 0; i--) {
+    var j = Math.floor(Math.random() * (i + 1));
+    var temp = newArr[i];
+    newArr[i] = newArr[j];
+    newArr[j] = temp;
+  }
+  return newArr;
+}
+
+function saveExamProgress(data, session) {
+  if (session.role !== "HOC_VIEN" && session.role !== "ADMIN" && session.role !== "GIAO_VIEN") {
+    throw new Error("Chỉ học viên mới lưu tiến độ!");
+  }
+  
+  var attemptId = data.attemptId;
+  var answers = data.answers;
+  
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("EXAM_ANSWER");
+  var lastRow = sheet.getLastRow();
+  
+  var attempts = getSheetData("EXAM_ATTEMPT");
+  var attemptObj = attempts.find(function(a) { return a.AttemptID === attemptId; });
+  if (!attemptObj) throw new Error("Lần làm bài không tồn tại!");
+  if (attemptObj.Status !== "IN_PROGRESS") {
+    // Nếu đã nộp bài, chỉ việc trả về success để không báo lỗi bên frontend (do auto-save có thể gọi chậm)
+    return { success: true };
+  }
+  
+  var rowIndices = {};
+  if (lastRow > 1) {
+    var sheetValues = sheet.getRange(1, 1, lastRow, sheet.getLastColumn()).getValues();
+    var headers = sheetValues[0];
+    var idxAttempt = headers.indexOf("AttemptID");
+    var idxQuestion = headers.indexOf("QuestionID");
+    
+    for (var i = 1; i < sheetValues.length; i++) {
+      if (sheetValues[i][idxAttempt] === attemptId) {
+        var qId = sheetValues[i][idxQuestion];
+        rowIndices[qId] = i + 1;
+      }
+    }
+  }
+  
+  var newRows = [];
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  
+  var idxStudentAnswer = headers.indexOf("StudentAnswer");
+  var idxSubAnswers = headers.indexOf("SubAnswers");
+  
+  answers.forEach(function(ans) {
+    var qId = ans.questionId;
+    var stuAns = ans.studentAnswer !== undefined && ans.studentAnswer !== null ? ans.studentAnswer.toString() : "";
+    var subAnsStr = ans.subAnswers ? JSON.stringify(ans.subAnswers) : "";
+    
+    var existingRow = rowIndices[qId];
+    if (existingRow) {
+      sheet.getRange(existingRow, idxStudentAnswer + 1).setValue(stuAns);
+      sheet.getRange(existingRow, idxSubAnswers + 1).setValue(subAnsStr);
+    } else {
+      var answerId = "ANS_" + Utilities.formatDate(new Date(), "GMT+7", "yyyyMMdd") + "_" + Math.floor(1000 + Math.random() * 9000);
+      var rowObj = {
+        "AnswerID": answerId,
+        "AttemptID": attemptId,
+        "QuestionID": qId,
+        "StudentAnswer": stuAns,
+        "SubAnswers": subAnsStr,
+        "IsCorrect": "",
+        "PointsEarned": ""
+      };
+      
+      var newRow = headers.map(function(h) {
+        return rowObj[h] !== undefined ? rowObj[h] : "";
+      });
+      newRows.push(newRow);
+    }
+  });
+  
+  if (newRows.length > 0) {
+    sheet.getRange(lastRow + 1, 1, newRows.length, headers.length).setValues(newRows);
+  }
+  
+  return { success: true };
+}
+
+function submitExam(data, session) {
+  var attemptId = data.attemptId;
+  
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000);
+    
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var attemptSheet = ss.getSheetByName("EXAM_ATTEMPT");
+    var attemptRows = attemptSheet.getRange(1, 1, attemptSheet.getLastRow(), attemptSheet.getLastColumn()).getValues();
+    var attHeaders = attemptRows[0];
+    
+    var idxAttId = attHeaders.indexOf("AttemptID");
+    var idxAttStatus = attHeaders.indexOf("Status");
+    var idxAttEndTime = attHeaders.indexOf("SubmitTime");
+    var idxAttDuration = attHeaders.indexOf("DurationSeconds");
+    var idxAttScore = attHeaders.indexOf("TotalScore");
+    var idxAttStudent = attHeaders.indexOf("StudentID");
+    var idxAttExam = attHeaders.indexOf("ExamID");
+    var idxAttClass = attHeaders.indexOf("ClassID");
+    var idxAttStartTime = attHeaders.indexOf("StartTime");
+    var idxAttMaxScore = attHeaders.indexOf("MaxScore");
+    var idxAttNumber = attHeaders.indexOf("AttemptNumber");
+    
+    var attRowIdx = -1;
+    for (var i = 1; i < attemptRows.length; i++) {
+      if (attemptRows[i][idxAttId] === attemptId) {
+        attRowIdx = i + 1;
+        break;
+      }
+    }
+    
+    if (attRowIdx === -1) throw new Error("Không tìm thấy lần làm bài thi!");
+    
+    var status = attemptRows[attRowIdx - 1][idxAttStatus];
+    var studentId = attemptRows[attRowIdx - 1][idxAttStudent];
+    var examId = attemptRows[attRowIdx - 1][idxAttExam];
+    var classId = attemptRows[attRowIdx - 1][idxAttClass];
+    var startTimeStr = attemptRows[attRowIdx - 1][idxAttStartTime];
+    var maxScore = parseFloat(attemptRows[attRowIdx - 1][idxAttMaxScore]) || 10;
+    var attemptNumber = parseInt(attemptRows[attRowIdx - 1][idxAttNumber]) || 1;
+    
+    if (status !== "IN_PROGRESS") {
+      return { success: true, message: "Bài thi này đã được nộp trước đó.", data: { attemptId: attemptId } };
+    }
+    
+    var submitTimeStr = new Date().toISOString();
+    var duration = Math.round((new Date(submitTimeStr).getTime() - new Date(startTimeStr).getTime()) / 1000);
+    
+    var questions = getSheetData("EXAM_QUESTION");
+    var examQuestions = questions.filter(function(q) { return q.ExamID === examId; });
+    
+    var sections = getSheetData("EXAM_SECTION_TYPE");
+    
+    var answersSheet = ss.getSheetByName("EXAM_ANSWER");
+    var answerRows = answersSheet.getRange(1, 1, answersSheet.getLastRow(), answersSheet.getLastColumn()).getValues();
+    var ansHeaders = answerRows[0];
+    
+    var idxAnsAttempt = ansHeaders.indexOf("AttemptID");
+    var idxAnsQuestion = ansHeaders.indexOf("QuestionID");
+    var idxAnsStudentAnswer = ansHeaders.indexOf("StudentAnswer");
+    var idxAnsSubAnswers = ansHeaders.indexOf("SubAnswers");
+    var idxAnsIsCorrect = ansHeaders.indexOf("IsCorrect");
+    var idxAnsPoints = ansHeaders.indexOf("PointsEarned");
+    
+    var studentAnswers = {};
+    for (var r = 1; r < answerRows.length; r++) {
+      if (answerRows[r][idxAnsAttempt] === attemptId) {
+        var qId = answerRows[r][idxAnsQuestion];
+        studentAnswers[qId] = {
+          rowIdx: r + 1,
+          studentAnswer: answerRows[r][idxAnsStudentAnswer],
+          subAnswers: answerRows[r][idxAnsSubAnswers]
+        };
+      }
+    }
+    
+    var totalScore = 0;
+    var isPendingEssay = false;
+    
+    examQuestions.forEach(function(q) {
+      var secType = sections.find(function(s) { return s.SectionTypeID === q.SectionTypeID; });
+      var pointsPerQuestion = secType ? parseFloat(secType.PointsPerQuestion) : 0;
+      var pointsPerSubQuestion = secType && secType.PointsPerSubQuestion !== "" && secType.PointsPerSubQuestion !== null ? parseFloat(secType.PointsPerSubQuestion) : null;
+      
+      var ansRecord = studentAnswers[q.QuestionID];
+      var isCorrect = false;
+      var pointsEarned = 0;
+      var type = secType ? secType.QuestionType : "MCQ";
+      
+      if (type === "ESSAY") {
+        isPendingEssay = true;
+        if (ansRecord) {
+          answersSheet.getRange(ansRecord.rowIdx, idxAnsIsCorrect + 1).setValue("");
+          answersSheet.getRange(ansRecord.rowIdx, idxAnsPoints + 1).setValue("");
+        }
+        return;
+      }
+      
+      var studentAnsStr = ansRecord ? (ansRecord.studentAnswer || "").toString().trim() : "";
+      var correctAnswerStr = (q.CorrectAnswer || "").toString().trim();
+      
+      if (type === "MCQ") {
+        isCorrect = (studentAnsStr.toLowerCase() === correctAnswerStr.toLowerCase());
+        pointsEarned = isCorrect ? pointsPerQuestion : 0;
+      } else if (type === "SHORT_ANSWER") {
+        isCorrect = (studentAnsStr.toLowerCase() === correctAnswerStr.toLowerCase());
+        pointsEarned = isCorrect ? pointsPerQuestion : 0;
+      } else if (type === "TRUE_FALSE") {
+        var correctSubQuestions = q.SubQuestions ? JSON.parse(q.SubQuestions) : [];
+        var studentSubAnswers = ansRecord && ansRecord.subAnswers ? JSON.parse(ansRecord.subAnswers) : [];
+        
+        var correctCount = 0;
+        correctSubQuestions.forEach(function(subQ, sIdx) {
+          var stuSub = studentSubAnswers.find(function(sa) { return sa.subIndex === sIdx; });
+          var stuSubAns = stuSub ? stuSub.answer : null;
+          var isSubCorrect = false;
+          if (stuSubAns !== null && stuSubAns !== undefined) {
+            isSubCorrect = (stuSubAns.toString().trim().toLowerCase() === subQ.answer.toString().trim().toLowerCase());
+          }
+          if (isSubCorrect) {
+            correctCount++;
+          }
+        });
+        
+        if (correctCount === 4) {
+          pointsEarned = pointsPerQuestion;
+          isCorrect = true;
+        } else if (pointsPerSubQuestion !== null) {
+          pointsEarned = correctCount * pointsPerSubQuestion;
+          isCorrect = (correctCount > 0);
+        } else {
+          if (correctCount === 1) pointsEarned = 0.1;
+          else if (correctCount === 2) pointsEarned = 0.25;
+          else if (correctCount === 3) pointsEarned = 0.5;
+          isCorrect = (correctCount > 0);
+        }
+      }
+      
+      totalScore += pointsEarned;
+      
+      if (ansRecord) {
+        answersSheet.getRange(ansRecord.rowIdx, idxAnsIsCorrect + 1).setValue(isCorrect);
+        answersSheet.getRange(ansRecord.rowIdx, idxAnsPoints + 1).setValue(pointsEarned);
+      } else {
+        var answerId = "ANS_" + Utilities.formatDate(new Date(), "GMT+7", "yyyyMMdd") + "_" + Math.floor(1000 + Math.random() * 9000);
+        appendRowData("EXAM_ANSWER", {
+          AnswerID: answerId,
+          AttemptID: attemptId,
+          QuestionID: q.QuestionID,
+          StudentAnswer: "",
+          SubAnswers: "",
+          IsCorrect: false,
+          PointsEarned: 0
+        });
+      }
+    });
+    
+    attemptSheet.getRange(attRowIdx, idxAttStatus + 1).setValue("SUBMITTED");
+    attemptSheet.getRange(attRowIdx, idxAttEndTime + 1).setValue(submitTimeStr);
+    attemptSheet.getRange(attRowIdx, idxAttDuration + 1).setValue(duration);
+    attemptSheet.getRange(attRowIdx, idxAttScore + 1).setValue(totalScore);
+    
+    syncAttemptToKetQua(attemptId, studentId, classId, examId, totalScore, maxScore, attemptNumber);
+    
+    return { 
+      success: true, 
+      data: { 
+        attemptId: attemptId, 
+        totalScore: totalScore, 
+        maxScore: maxScore,
+        isPendingEssay: isPendingEssay 
+      } 
+    };
+    
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function syncAttemptToKetQua(attemptId, studentId, classId, examId, score, maxScore, attemptNumber) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var exams = getSheetData("EXAM_BANK");
+  var exam = exams.find(function(e) { return e.ExamID === examId; });
+  var examName = exam ? exam.ExamName : "Đề thi online";
+  
+  var ketQuaSheet = ss.getSheetByName("KET_QUA_HOC_TAP");
+  var kqRows = ketQuaSheet.getRange(1, 1, ketQuaSheet.getLastRow(), ketQuaSheet.getLastColumn()).getValues();
+  var kqHeaders = kqRows[0];
+  
+  var idxKqAttemptId = kqHeaders.indexOf("AttemptID");
+  var idxKqScore = kqHeaders.indexOf("Score");
+  var idxKqNormScore = kqHeaders.indexOf("NormalizedScore");
+  var idxKqDate = kqHeaders.indexOf("RecordedDate");
+  
+  var todayStr = Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM-dd");
+  var normalizedScore = (score / maxScore) * 10;
+  
+  var existingKqRowIdx = -1;
+  for (var r = 1; r < kqRows.length; r++) {
+    if (kqRows[r][idxKqAttemptId] === attemptId) {
+      existingKqRowIdx = r + 1;
+      break;
+    }
+  }
+  
+  if (existingKqRowIdx !== -1) {
+    ketQuaSheet.getRange(existingKqRowIdx, idxKqScore + 1).setValue(score);
+    ketQuaSheet.getRange(existingKqRowIdx, idxKqNormScore + 1).setValue(normalizedScore);
+    ketQuaSheet.getRange(existingKqRowIdx, idxKqDate + 1).setValue(todayStr);
+  } else {
+    var resultId = "RES_" + Utilities.formatDate(new Date(), "GMT+7", "yyyyMMdd") + "_" + Math.floor(1000 + Math.random() * 9000);
+    appendRowData("KET_QUA_HOC_TAP", {
+      ResultID: resultId,
+      StudentID: studentId,
+      ClassID: classId,
+      AssignmentName: examName,
+      Source_Type: "EXAM_ONLINE",
+      AttemptID: attemptId,
+      Score: score,
+      MaxScore: maxScore,
+      NormalizedScore: normalizedScore,
+      Feedback: "",
+      RecordedBy: "SYSTEM",
+      RecordedDate: todayStr,
+      AttemptNumber: attemptNumber,
+      IsBestAttempt: false
+    });
+  }
+  
+  recalculateBestAttempt(studentId, classId, examName);
+}
+
+function recalculateBestAttempt(studentId, classId, assignmentName) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("KET_QUA_HOC_TAP");
+  var rows = sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn()).getValues();
+  var headers = rows[0];
+  
+  var idxStudent = headers.indexOf("StudentID");
+  var idxClass = headers.indexOf("ClassID");
+  var idxAssign = headers.indexOf("AssignmentName");
+  var idxNormScore = headers.indexOf("NormalizedScore");
+  var idxBest = headers.indexOf("IsBestAttempt");
+  
+  var matchIndices = [];
+  var maxVal = -1;
+  var bestRowIdx = -1;
+  
+  for (var r = 1; r < rows.length; r++) {
+    if (rows[r][idxStudent] === studentId && 
+        rows[r][idxClass] === classId && 
+        rows[r][idxAssign] === assignmentName) {
+      matchIndices.push(r + 1);
+      var scoreVal = parseFloat(rows[r][idxNormScore]) || 0;
+      if (scoreVal > maxVal) {
+        maxVal = scoreVal;
+        bestRowIdx = r + 1;
+      }
+    }
+  }
+  
+  if (bestRowIdx === -1 && matchIndices.length > 0) {
+    bestRowIdx = matchIndices[matchIndices.length - 1];
+  }
+  
+  matchIndices.forEach(function(rowIdx) {
+    sheet.getRange(rowIdx, idxBest + 1).setValue(rowIdx === bestRowIdx);
+  });
+}
+
+function getExamResult(attemptId, session) {
+  var attempts = getSheetData("EXAM_ATTEMPT");
+  var attempt = attempts.find(function(a) { return a.AttemptID === attemptId; });
+  if (!attempt) throw new Error("Không tìm thấy lần làm bài!");
+  
+  if (session.role === "HOC_VIEN" && attempt.StudentID !== session.refId) {
+    throw new Error("Bạn không có quyền xem kết quả làm bài của học viên khác!");
+  }
+  
+  var exams = getSheetData("EXAM_BANK");
+  var exam = exams.find(function(e) { return e.ExamID === attempt.ExamID; });
+  
+  var questions = getSheetData("EXAM_QUESTION");
+  var examQuestions = questions.filter(function(q) { return q.ExamID === attempt.ExamID; });
+  
+  var answers = getSheetData("EXAM_ANSWER");
+  var attemptAnswers = answers.filter(function(ans) { return ans.AttemptID === attemptId; });
+  
+  var questionOrder = attempt.QuestionOrder ? JSON.parse(attempt.QuestionOrder) : [];
+  if (questionOrder.length > 0) {
+    examQuestions.sort(function(a, b) {
+      return questionOrder.indexOf(a.QuestionID) - questionOrder.indexOf(b.QuestionID);
+    });
+  } else {
+    examQuestions.sort(function(a, b) { return a.QuestionNumber - b.QuestionNumber; });
+  }
+  
+  var detailedQuestions = examQuestions.map(function(q) {
+    var ans = attemptAnswers.find(function(a) { return a.QuestionID === q.QuestionID; });
+    return {
+      questionId: q.QuestionID,
+      questionNumber: q.QuestionNumber,
+      questionContent: q.QuestionContent,
+      optionA: q.OptionA,
+      optionB: q.OptionB,
+      optionC: q.OptionC,
+      optionD: q.OptionD,
+      subQuestions: q.SubQuestions ? JSON.parse(q.SubQuestions) : null,
+      correctAnswer: q.CorrectAnswer,
+      solution: q.Solution,
+      difficulty: q.Difficulty,
+      studentAnswer: ans ? ans.StudentAnswer : "",
+      subAnswers: ans && ans.SubAnswers ? JSON.parse(ans.SubAnswers) : null,
+      isCorrect: ans ? (ans.IsCorrect === true || ans.IsCorrect === "TRUE") : false,
+      pointsEarned: ans ? parseFloat(ans.PointsEarned) || 0 : 0
+    };
+  });
+  
+  return {
+    attemptId: attempt.AttemptID,
+    studentId: attempt.StudentID,
+    examId: attempt.ExamID,
+    examName: exam ? exam.ExamName : "N/A",
+    startTime: parseDateToString(attempt.StartTime),
+    submitTime: parseDateToString(attempt.SubmitTime),
+    durationSeconds: parseInt(attempt.DurationSeconds) || 0,
+    status: attempt.Status,
+    totalScore: parseFloat(attempt.TotalScore) || 0,
+    maxScore: parseFloat(attempt.MaxScore) || 10,
+    attemptNumber: parseInt(attempt.AttemptNumber),
+    questions: detailedQuestions
+  };
+}
+
+function getStudentAttemptHistory(studentId, examId, session) {
+  var targetStudentId = studentId || session.refId;
+  if (session.role === "HOC_VIEN" && targetStudentId !== session.refId) {
+    throw new Error("Không có quyền xem lịch sử của học viên khác!");
+  }
+  
+  var attempts = getSheetData("EXAM_ATTEMPT");
+  var exams = getSheetData("EXAM_BANK");
+  
+  var studentAttempts = attempts.filter(function(a) {
+    var matches = a.StudentID === targetStudentId;
+    if (examId) {
+      matches = matches && a.ExamID === examId;
+    }
+    return matches;
+  });
+  
+  return studentAttempts.map(function(a) {
+    var exam = exams.find(function(e) { return e.ExamID === a.ExamID; });
+    return {
+      attemptId: a.AttemptID,
+      examId: a.ExamID,
+      examName: exam ? exam.ExamName : "N/A",
+      startTime: parseDateToString(a.StartTime),
+      submitTime: parseDateToString(a.SubmitTime),
+      durationSeconds: parseInt(a.DurationSeconds) || 0,
+      status: a.Status,
+      totalScore: a.TotalScore !== "" && a.TotalScore !== null ? parseFloat(a.TotalScore) : null,
+      maxScore: parseFloat(a.MaxScore) || 10,
+      attemptNumber: parseInt(a.AttemptNumber)
+    };
+  }).sort(function(a, b) {
+    return b.startTime.localeCompare(a.startTime);
+  });
+}
+
+function gradeEssayAnswer(data, session) {
+  if (session.role !== "ADMIN" && session.role !== "GIAO_VIEN") {
+    throw new Error("Không có quyền chấm tự luận!");
+  }
+  
+  var answerId = data.answerId;
+  var points = parseFloat(data.points);
+  var feedback = data.feedback || "";
+  
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ansSheet = ss.getSheetByName("EXAM_ANSWER");
+  var ansRows = ansSheet.getRange(1, 1, ansSheet.getLastRow(), ansSheet.getLastColumn()).getValues();
+  var ansHeaders = ansRows[0];
+  
+  var idxAnsId = ansHeaders.indexOf("AnswerID");
+  var idxAnsIsCorrect = ansHeaders.indexOf("IsCorrect");
+  var idxAnsPoints = ansHeaders.indexOf("PointsEarned");
+  var idxAnsAttempt = ansHeaders.indexOf("AttemptID");
+  
+  var ansRowIdx = -1;
+  for (var i = 1; i < ansRows.length; i++) {
+    if (ansRows[i][idxAnsId] === answerId) {
+      ansRowIdx = i + 1;
+      break;
+    }
+  }
+  
+  if (ansRowIdx === -1) throw new Error("Không tìm thấy bài làm câu hỏi!");
+  
+  var attemptId = ansRows[ansRowIdx - 1][idxAnsAttempt];
+  
+  ansSheet.getRange(ansRowIdx, idxAnsIsCorrect + 1).setValue(points > 0);
+  ansSheet.getRange(ansRowIdx, idxAnsPoints + 1).setValue(points);
+  
+  var answers = getSheetData("EXAM_ANSWER");
+  var attemptAnswers = answers.filter(function(ans) { return ans.AttemptID === attemptId; });
+  var totalScore = 0;
+  attemptAnswers.forEach(function(ans) {
+    if (ans.AnswerID === answerId) {
+      totalScore += points;
+    } else {
+      totalScore += parseFloat(ans.PointsEarned) || 0;
+    }
+  });
+  
+  var attemptSheet = ss.getSheetByName("EXAM_ATTEMPT");
+  var attRows = attemptSheet.getRange(1, 1, attemptSheet.getLastRow(), attemptSheet.getLastColumn()).getValues();
+  var attHeaders = attRows[0];
+  
+  var idxAttId = attHeaders.indexOf("AttemptID");
+  var idxAttScore = attHeaders.indexOf("TotalScore");
+  var idxAttStudent = attHeaders.indexOf("StudentID");
+  var idxAttClass = attHeaders.indexOf("ClassID");
+  var idxAttExam = attHeaders.indexOf("ExamID");
+  var idxAttMaxScore = attHeaders.indexOf("MaxScore");
+  var idxAttNumber = attHeaders.indexOf("AttemptNumber");
+  
+  var attRowIdx = -1;
+  for (var i = 1; i < attRows.length; i++) {
+    if (attRows[i][idxAttId] === attemptId) {
+      attRowIdx = i + 1;
+      break;
+    }
+  }
+  
+  if (attRowIdx !== -1) {
+    attemptSheet.getRange(attRowIdx, idxAttScore + 1).setValue(totalScore);
+    
+    var studentId = attRows[attRowIdx - 1][idxAttStudent];
+    var classId = attRows[attRowIdx - 1][idxAttClass];
+    var examId = attRows[attRowIdx - 1][idxAttExam];
+    var maxScore = parseFloat(attRows[attRowIdx - 1][idxAttMaxScore]) || 10;
+    var attemptNumber = parseInt(attRows[attRowIdx - 1][idxAttNumber]) || 1;
+    
+    syncAttemptToKetQua(attemptId, studentId, classId, examId, totalScore, maxScore, attemptNumber);
+    
+    if (feedback) {
+      var kqSheet = ss.getSheetByName("KET_QUA_HOC_TAP");
+      var kqRows = kqSheet.getRange(1, 1, kqSheet.getLastRow(), kqSheet.getLastColumn()).getValues();
+      var idxKqAttemptId = kqRows[0].indexOf("AttemptID");
+      var idxKqFeedback = kqRows[0].indexOf("Feedback");
+      
+      for (var r = 1; r < kqRows.length; r++) {
+        if (kqRows[r][idxKqAttemptId] === attemptId) {
+          kqSheet.getRange(r + 1, idxKqFeedback + 1).setValue(feedback);
+          break;
+        }
+      }
+    }
+  }
+  
+  return { success: true };
+}
+
+
+// --- MODULE 4: TRACKING KẾT QUẢ HỌC TẬP ---
+
+function getStudentResultDashboard(studentId, session) {
+  var targetStudentId = studentId || session.refId;
+  if (session.role === "HOC_VIEN" && targetStudentId !== session.refId) {
+    throw new Error("Không có quyền truy cập kết quả của học viên khác!");
+  }
+  
+  var enrollments = getSheetData("GHI_DANH");
+  var classes = getSheetData("LOPHOC");
+  var results = getSheetData("KET_QUA_HOC_TAP");
+  var links = getSheetData("CLASS_MATERIAL_LINK");
+  var files = getSheetData("FILE_HOC_LIEU");
+  
+  var studentEnrollments = enrollments.filter(function(enr) { return enr.StudentID === targetStudentId; });
+  var studentClassIds = studentEnrollments.map(function(enr) { return enr.ClassID; });
+  
+  var classGPAs = [];
+  studentClassIds.forEach(function(cId) {
+    var cls = classes.find(function(c) { return c.ClassID === cId; });
+    if (!cls) return;
+    
+    var studentResults = results.filter(function(r) {
+      return r.StudentID === targetStudentId && 
+             r.ClassID === cId && 
+             (r.IsBestAttempt === true || r.IsBestAttempt === "TRUE");
+    });
+    
+    var sum = 0;
+    studentResults.forEach(function(r) { sum += parseFloat(r.NormalizedScore) || 0; });
+    var gpa = studentResults.length > 0 ? (sum / studentResults.length) : 0;
+    
+    var rankInfo = getStudentRankInClassV2(targetStudentId, cId);
+    
+    classGPAs.push({
+      classId: cId,
+      className: cls.ClassName,
+      schedule: cls.Schedule,
+      gpa: Math.round(gpa * 100) / 100,
+      rank: rankInfo.rank,
+      totalStudents: rankInfo.total,
+      progressPercent: calculateClassProgressPercent(cId)
+    });
+  });
+  
+  var attempts = getSheetData("EXAM_ATTEMPT");
+  var exams = getSheetData("EXAM_BANK");
+  var studentAttempts = attempts
+    .filter(function(a) { return a.StudentID === targetStudentId; })
+    .map(function(a) {
+      var exam = exams.find(function(e) { return e.ExamID === a.ExamID; });
+      return {
+        attemptId: a.AttemptID,
+        classId: a.ClassID,
+        examId: a.ExamID,
+        examName: exam ? exam.ExamName : "N/A",
+        startTime: parseDateToString(a.StartTime),
+        submitTime: parseDateToString(a.SubmitTime),
+        status: a.Status,
+        score: a.TotalScore !== "" && a.TotalScore !== null ? parseFloat(a.TotalScore) : null,
+        maxScore: parseFloat(a.MaxScore) || 10,
+        attemptNumber: parseInt(a.AttemptNumber)
+      };
+    })
+    .sort(function(a, b) { return b.startTime.localeCompare(a.startTime); });
+    
+  var uncompletedExams = [];
+  studentClassIds.forEach(function(cId) {
+    var classLinks = links.filter(function(lnk) {
+      return lnk.ClassID === cId && lnk.IsActive !== false && lnk.IsActive !== "FALSE" && lnk.IsVisible !== false && lnk.IsVisible !== "FALSE";
+    });
+    
+    classLinks.forEach(function(lnk) {
+      var fileObj = files.find(function(f) { return f.FileID === lnk.FileID; });
+      if (fileObj && fileObj.FileType === "EXAM") {
+        var examId = fileObj.ExamID;
+        var hasAttempt = studentAttempts.some(function(a) {
+          return a.examId === examId && a.classId === cId && a.status === "SUBMITTED";
+        });
+        
+        if (!hasAttempt) {
+          var exam = exams.find(function(e) { return e.ExamID === examId; });
+          var cls = classes.find(function(c) { return c.ClassID === cId; });
+          uncompletedExams.push({
+            classId: cId,
+            className: cls ? cls.ClassName : "N/A",
+            examId: examId,
+            examName: exam ? exam.ExamName : "Đề thi",
+            dueDate: parseDateToString(lnk.DueDate),
+            maxAttempts: lnk.MaxAttempts !== "" && lnk.MaxAttempts !== null && lnk.MaxAttempts !== undefined ? parseInt(lnk.MaxAttempts) : null
+          });
+        }
+      }
+    });
+  });
+  
+  return {
+    classes: classGPAs,
+    attempts: studentAttempts,
+    uncompletedExams: uncompletedExams
+  };
+}
+
+function getStudentRankInClassV2(studentId, classId) {
+  var enrollments = getSheetData("GHI_DANH");
+  var results = getSheetData("KET_QUA_HOC_TAP");
+  
+  var classStudents = enrollments
+    .filter(function(enr) { return enr.ClassID === classId; })
+    .map(function(enr) { return enr.StudentID; });
+  
+  if (classStudents.length === 0) return { rank: 1, total: 1 };
+  
+  var studentGPAs = [];
+  classStudents.forEach(function(sId) {
+    var sResults = results.filter(function(r) {
+      return r.StudentID === sId && 
+             r.ClassID === classId && 
+             (r.IsBestAttempt === true || r.IsBestAttempt === "TRUE");
+    });
+    var sum = 0;
+    sResults.forEach(function(r) { sum += parseFloat(r.NormalizedScore) || 0; });
+    var gpa = sResults.length > 0 ? (sum / sResults.length) : 0;
+    studentGPAs.push({ studentId: sId, gpa: gpa });
+  });
+  
+  studentGPAs.sort(function(a, b) { return b.gpa - a.gpa; });
+  
+  var rank = 1;
+  for (var i = 0; i < studentGPAs.length; i++) {
+    if (studentGPAs[i].studentId === studentId) {
+      rank = i + 1;
+      break;
+    }
+  }
+  
+  return { rank: rank, total: studentGPAs.length };
+}
+
+function getClassResultDashboard(classId, session) {
+  if (session.role !== "ADMIN" && session.role !== "GIAO_VIEN") {
+    throw new Error("Không có quyền xem dashboard kết quả lớp!");
+  }
+  
+  var classes = getSheetData("LOPHOC");
+  var cls = classes.find(function(c) { return c.ClassID === classId; });
+  if (!cls) throw new Error("Lớp học không tồn tại!");
+  if (session.role === "GIAO_VIEN" && cls.TeacherID !== session.refId) {
+    throw new Error("Giáo viên không phụ trách lớp này!");
+  }
+  
+  var enrollments = getSheetData("GHI_DANH");
+  var classStudents = enrollments.filter(function(enr) { return enr.ClassID === classId; });
+  
+  var studentProfiles = getSheetData("HOC_VIEN");
+  var results = getSheetData("KET_QUA_HOC_TAP");
+  
+  var classResults = results.filter(function(r) {
+    return r.ClassID === classId && (r.IsBestAttempt === true || r.IsBestAttempt === "TRUE");
+  });
+  
+  var assignments = [];
+  classResults.forEach(function(r) {
+    if (assignments.indexOf(r.AssignmentName) === -1) {
+      assignments.push(r.AssignmentName);
+    }
+  });
+  
+  var studentsMatrix = [];
+  var decliningTrendWarnings = [];
+  
+  classStudents.forEach(function(enr) {
+    var stdProfile = studentProfiles.find(function(s) { return s.StudentID === enr.StudentID; });
+    var studentName = stdProfile ? stdProfile.FullName : "Học viên " + enr.StudentID;
+    
+    var studentGrades = {};
+    assignments.forEach(function(asName) {
+      var r = classResults.find(function(res) {
+        return res.StudentID === enr.StudentID && res.AssignmentName === asName;
+      });
+      studentGrades[asName] = r ? parseFloat(r.NormalizedScore) : null;
+    });
+    
+    var studentChronologicalResults = results
+      .filter(function(r) {
+        return r.StudentID === enr.StudentID && 
+               r.ClassID === classId && 
+               (r.IsBestAttempt === true || r.IsBestAttempt === "TRUE");
+      })
+      .sort(function(a, b) {
+        return a.RecordedDate.localeCompare(b.RecordedDate);
+      });
+      
+    var scores = studentChronologicalResults.map(function(r) { return parseFloat(r.NormalizedScore) || 0; });
+    var hasDecliningTrend = false;
+    if (scores.length >= 3) {
+      var len = scores.length;
+      if (scores[len - 1] < scores[len - 2] && scores[len - 2] < scores[len - 3]) {
+        hasDecliningTrend = true;
+        decliningTrendWarnings.push({
+          studentId: enr.StudentID,
+          fullName: studentName,
+          recentScores: [scores[len - 3], scores[len - 2], scores[len - 1]]
+        });
+      }
+    }
+    
+    studentsMatrix.push({
+      studentId: enr.StudentID,
+      fullName: studentName,
+      grades: studentGrades,
+      hasDecliningTrend: hasDecliningTrend
+    });
+  });
+  
+  var assignmentStats = {};
+  assignments.forEach(function(asName) {
+    var asGrades = classResults
+      .filter(function(r) { return r.AssignmentName === asName && r.NormalizedScore !== null && r.NormalizedScore !== ""; })
+      .map(function(r) { return parseFloat(r.NormalizedScore); });
+      
+    if (asGrades.length > 0) {
+      var min = Math.min.apply(null, asGrades);
+      var max = Math.max.apply(null, asGrades);
+      var sum = asGrades.reduce(function(a, b) { return a + b; }, 0);
+      var avg = sum / asGrades.length;
+      
+      var passCount = asGrades.filter(function(g) { return g >= 5.0; }).length;
+      var failCount = asGrades.length - passCount;
+      
+      assignmentStats[asName] = {
+        min: Math.round(min * 10) / 10,
+        max: Math.round(max * 10) / 10,
+        avg: Math.round(avg * 100) / 100,
+        passCount: passCount,
+        failCount: failCount,
+        totalCount: asGrades.length
+      };
+    } else {
+      assignmentStats[asName] = { min: null, max: null, avg: null, passCount: 0, failCount: 0, totalCount: 0 };
+    }
+  });
+  
+  var links = getSheetData("CLASS_MATERIAL_LINK");
+  var files = getSheetData("FILE_HOC_LIEU");
+  var exams = getSheetData("EXAM_BANK");
+  var attempts = getSheetData("EXAM_ATTEMPT");
+  
+  var pendingStudentsList = [];
+  var classLinks = links.filter(function(lnk) {
+    return lnk.ClassID === classId && lnk.IsActive !== false && lnk.IsActive !== "FALSE" && lnk.IsVisible !== false && lnk.IsVisible !== "FALSE";
+  });
+  
+  classLinks.forEach(function(lnk) {
+    var fileObj = files.find(function(f) { return f.FileID === lnk.FileID; });
+    if (fileObj && fileObj.FileType === "EXAM") {
+      var exam = exams.find(function(e) { return e.ExamID === fileObj.ExamID; });
+      if (!exam) return;
+      
+      classStudents.forEach(function(enr) {
+        var hasAttempt = attempts.some(function(a) {
+          return a.StudentID === enr.StudentID && 
+                 a.ClassID === classId && 
+                 a.ExamID === exam.ExamID && 
+                 a.Status === "SUBMITTED";
+        });
+        
+        if (!hasAttempt) {
+          var stdProfile = studentProfiles.find(function(s) { return s.StudentID === enr.StudentID; });
+          pendingStudentsList.push({
+            studentId: enr.StudentID,
+            fullName: stdProfile ? stdProfile.FullName : "Học viên " + enr.StudentID,
+            examId: exam.ExamID,
+            examName: exam.ExamName,
+            dueDate: parseDateToString(lnk.DueDate)
+          });
+        }
+      });
+    }
+  });
+  
+  return {
+    classId: classId,
+    className: cls.ClassName,
+    assignments: assignments,
+    studentsMatrix: studentsMatrix,
+    assignmentStats: assignmentStats,
+    pendingStudentsList: pendingStudentsList,
+    decliningTrendWarnings: decliningTrendWarnings
+  };
+}
+
+function getAssignmentStatsData(classId, assignmentName, session) {
+  if (session.role !== "ADMIN" && session.role !== "GIAO_VIEN") {
+    throw new Error("Không có quyền xem thống kê đề kiểm tra!");
+  }
+  
+  var results = getSheetData("KET_QUA_HOC_TAP");
+  var classResults = results.filter(function(r) {
+    return r.ClassID === classId && 
+           r.AssignmentName === assignmentName && 
+           (r.IsBestAttempt === true || r.IsBestAttempt === "TRUE");
+  });
+  
+  var scores = classResults.map(function(r) { return parseFloat(r.NormalizedScore) || 0; });
+  
+  if (scores.length === 0) {
+    return { min: 0, max: 0, average: 0, total: 0, ranges: {} };
+  }
+  
+  var min = Math.min.apply(null, scores);
+  var max = Math.max.apply(null, scores);
+  var sum = scores.reduce(function(a, b) { return a + b; }, 0);
+  var average = sum / scores.length;
+  
+  var ranges = {
+    "F_0_3.5": 0,
+    "D_3.5_5.0": 0,
+    "C_5.0_6.5": 0,
+    "B_6.5_8.0": 0,
+    "A_8.0_9.0": 0,
+    "S_9.0_10": 0
+  };
+  
+  scores.forEach(function(s) {
+    if (s < 3.5) ranges["F_0_3.5"]++;
+    else if (s < 5.0) ranges["D_3.5_5.0"]++;
+    else if (s < 6.5) ranges["C_5.0_6.5"]++;
+    else if (s < 8.0) ranges["B_6.5_8.0"]++;
+    else if (s < 9.0) ranges["A_8.0_9.0"]++;
+    else ranges["S_9.0_10"]++;
+  });
+  
+  return {
+    min: Math.round(min * 10) / 10,
+    max: Math.round(max * 10) / 10,
+    average: Math.round(average * 100) / 100,
+    total: scores.length,
+    ranges: ranges
+  };
+}
+

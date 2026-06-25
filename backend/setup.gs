@@ -34,8 +34,50 @@ function setupDatabase() {
   
   // Run database upgrades automatically
   upgradeDatabaseSchema();
+  upgradeDatabaseSchemaJune2026();
+  upgradeDatabaseV2();
+  migrateDiemSoToKetQua();
+  
+  // Seed V2 data if missing
+  seedV2Data(ss);
+  
+  // Patch schema dynamically if columns are missing
+  patchClassMaterialLinkSchema(ss);
   
   Logger.log("Database initialized successfully!");
+}
+
+function patchClassMaterialLinkSchema(ss) {
+  var sheet = ss.getSheetByName("CLASS_MATERIAL_LINK");
+  if (!sheet) return;
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  if (headers.indexOf("TopicName") === -1) {
+    sheet.getRange(1, headers.length + 1).setValue("TopicName").setFontWeight("bold").setBackground("#f3f4f6");
+    Logger.log("Added TopicName column to CLASS_MATERIAL_LINK");
+  }
+}
+
+function seedV2Data(ss) {
+  var folderSheet = ss.getSheetByName("FOLDER_CHUYEN_DE");
+  if (folderSheet && folderSheet.getLastRow() <= 1) {
+    var folders = [
+      ["FLD_01", "Chuyên đề Hàm Số & Đồ Thị", "Toán", "Lớp 10", "Nâng cao", 1, "Các bài toán nâng cao khảo sát hàm số bậc hai, bậc ba và phân thức.", "ADMIN_01", "2026-06-25", "TRUE"],
+      ["FLD_02", "Chuyên đề Tổ Hợp & Xác Suất", "Toán", "Lớp 10", "Chuyên", 2, "Tổ hợp, chỉnh hợp, xác suất cổ điển và nhị thức Newton.", "ADMIN_01", "2026-06-25", "TRUE"],
+      ["FLD_03", "Chuyên đề Hình Học Không Gian", "Toán", "Lớp 11", "Cơ bản", 3, "Đường thẳng và mặt phẳng song song, vuông góc.", "ADMIN_01", "2026-06-25", "TRUE"]
+    ];
+    folderSheet.getRange(2, 1, folders.length, folders[0].length).setValues(folders);
+    Logger.log("Seeded default folders in FOLDER_CHUYEN_DE.");
+  }
+  
+  var fileSheet = ss.getSheetByName("FILE_HOC_LIEU");
+  if (fileSheet && fileSheet.getLastRow() <= 1) {
+    var files = [
+      ["FIL_01", "FLD_01", "Bài tập Khảo sát biến thiên hàm số bậc hai.pdf", "PDF", "https://drive.google.com/file/d/1_dummy_id_1/preview", "", "TCH_01", "2026-06-25", "Tài liệu lý thuyết và bài tập tự luyện.", "TRUE"],
+      ["FIL_02", "FLD_02", "Chuyên đề tổ hợp xác suất cơ bản đến nâng cao.pdf", "PDF", "https://drive.google.com/file/d/1_dummy_id_2/preview", "", "TCH_01", "2026-06-25", "Các dạng bài toán đếm và tính xác suất.", "TRUE"]
+    ];
+    fileSheet.getRange(2, 1, files.length, files[0].length).setValues(files);
+    Logger.log("Seeded default files in FILE_HOC_LIEU.");
+  }
 }
 
 function seedDemoData(ss) {
@@ -122,6 +164,29 @@ function seedDemoData(ss) {
     ["GRD_04", "CLS_02", "STD_03", "Khảo sát Hình học giải tích", 9.0, "Tuyệt vời! Giải toán hình không gian bằng vector $V = \\frac{1}{6}|(\\vec{u} \\times \\vec{v}) \\cdot \\vec{w}|$ rất sáng tạo."]
   ];
   gradesSheet.getRange(2, 1, grades.length, grades[0].length).setValues(grades);
+
+  // Add initial central folders: FolderID, FolderName, Subject, Grade, Level, SortOrder, Description, CreatedBy, CreatedDate, IsActive
+  var folderSheet = ss.getSheetByName("FOLDER_CHUYEN_DE");
+  if (folderSheet && folderSheet.getLastRow() <= 1) {
+    var folders = [
+      ["FLD_01", "Chuyên đề Hàm Số & Đồ Thị", "Toán", "Lớp 10", "Nâng cao", 1, "Các bài toán nâng cao khảo sát hàm số bậc hai, bậc ba và phân thức.", "ADMIN_01", "2026-06-25", "TRUE"],
+      ["FLD_02", "Chuyên đề Tổ Hợp & Xác Suất", "Toán", "Lớp 10", "Chuyên", 2, "Tổ hợp, chỉnh hợp, xác suất cổ điển và nhị thức Newton.", "ADMIN_01", "2026-06-25", "TRUE"],
+      ["FLD_03", "Chuyên đề Hình Học Không Gian", "Toán", "Lớp 11", "Cơ bản", 3, "Đường thẳng và mặt phẳng song song, vuông góc.", "ADMIN_01", "2026-06-25", "TRUE"]
+    ];
+    folderSheet.getRange(2, 1, folders.length, folders[0].length).setValues(folders);
+    Logger.log("Seeded default folders in FOLDER_CHUYEN_DE.");
+  }
+  
+  // Add initial central files: FileID, FolderID, FileName, FileType, FileURL, ExamID, UploadedBy, UploadedDate, Description, IsGlobal
+  var fileSheet = ss.getSheetByName("FILE_HOC_LIEU");
+  if (fileSheet && fileSheet.getLastRow() <= 1) {
+    var files = [
+      ["FIL_01", "FLD_01", "Bài tập Khảo sát biến thiên hàm số bậc hai.pdf", "PDF", "https://drive.google.com/file/d/1_dummy_id_1/preview", "", "TCH_01", "2026-06-25", "Tài liệu lý thuyết và bài tập tự luyện.", "TRUE"],
+      ["FIL_02", "FLD_02", "Chuyên đề tổ hợp xác suất cơ bản đến nâng cao.pdf", "PDF", "https://drive.google.com/file/d/1_dummy_id_2/preview", "", "TCH_01", "2026-06-25", "Các dạng bài toán đếm và tính xác suất.", "TRUE"]
+    ];
+    fileSheet.getRange(2, 1, files.length, files[0].length).setValues(files);
+    Logger.log("Seeded default files in FILE_HOC_LIEU.");
+  }
 }
 
 function upgradeDatabaseSchema() {
@@ -460,4 +525,378 @@ function changeAdminPassword() {
   }
   
   Logger.log("Updated admin password to '123456789' for " + count + " accounts.");
+}
+
+function upgradeDatabaseV2() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var schema = {
+    "FOLDER_CHUYEN_DE": ["FolderID", "FolderName", "Subject", "Grade", "Level", "SortOrder", "Description", "CreatedBy", "CreatedDate", "IsActive"],
+    "FILE_HOC_LIEU": ["FileID", "FolderID", "FileName", "FileType", "FileURL", "ExamID", "UploadedBy", "UploadedDate", "Description", "IsGlobal"],
+    "CLASS_MATERIAL_LINK": ["LinkID", "ClassID", "FileID", "AssignedBy", "AssignedDate", "DueDate", "IsVisible", "SortOrder", "MaxAttempts", "IsActive"],
+    "EXAM_TEMPLATE": ["TemplateID", "TemplateName", "Subject", "Grade", "TotalDuration", "MaxScore", "Description", "CreatedBy"],
+    "EXAM_SECTION_TYPE": ["SectionTypeID", "TemplateID", "SectionName", "QuestionType", "QuestionCount", "PointsPerQuestion", "PointsPerSubQuestion", "SortOrder", "AIParsePrompt"],
+    "EXAM_BANK": ["ExamID", "TemplateID", "ExamName", "Subject", "Grade", "DurationMinutes", "TotalPoints", "CreatedBy", "CreatedDate", "Status", "ShuffleQuestions", "ShuffleOptions"],
+    "EXAM_QUESTION": ["QuestionID", "ExamID", "SectionTypeID", "QuestionNumber", "QuestionContent", "OptionA", "OptionB", "OptionC", "OptionD", "SubQuestions", "CorrectAnswer", "Solution", "Difficulty"],
+    "EXAM_ATTEMPT": ["AttemptID", "StudentID", "ExamID", "ClassID", "LinkID", "StartTime", "SubmitTime", "DurationSeconds", "Status", "TotalScore", "MaxScore", "AttemptNumber", "QuestionOrder"],
+    "EXAM_ANSWER": ["AnswerID", "AttemptID", "QuestionID", "StudentAnswer", "SubAnswers", "IsCorrect", "PointsEarned"],
+    "KET_QUA_HOC_TAP": ["ResultID", "StudentID", "ClassID", "AssignmentName", "Source_Type", "AttemptID", "Score", "MaxScore", "NormalizedScore", "Feedback", "RecordedBy", "RecordedDate", "AttemptNumber", "IsBestAttempt"]
+  };
+  
+  for (var sheetName in schema) {
+    var sheet = ss.getSheetByName(sheetName);
+    if (!sheet) {
+      sheet = ss.insertSheet(sheetName);
+      var headers = schema[sheetName];
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold").setBackground("#f3f4f6");
+      sheet.setFrozenRows(1);
+      Logger.log("Created sheet " + sheetName);
+    } else {
+      var lastCol = sheet.getLastColumn();
+      var headers = lastCol > 0 ? sheet.getRange(1, 1, 1, lastCol).getValues()[0] : [];
+      var expectedHeaders = schema[sheetName];
+      expectedHeaders.forEach(function(h) {
+        if (headers.indexOf(h) === -1) {
+          lastCol++;
+          sheet.getRange(1, lastCol).setValue(h).setFontWeight("bold").setBackground("#f3f4f6");
+          Logger.log("Added column " + h + " to sheet " + sheetName);
+        }
+      });
+    }
+  }
+  
+  migrateDiemSoToKetQua();
+}
+
+function migrateDiemSoToKetQua() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ketQuaSheet = ss.getSheetByName("KET_QUA_HOC_TAP");
+  if (!ketQuaSheet) {
+    Logger.log("KET_QUA_HOC_TAP sheet not initialized yet.");
+    return;
+  }
+  
+  var existingRecords = [];
+  try {
+    existingRecords = getSheetData("KET_QUA_HOC_TAP");
+  } catch(e) {}
+  
+  var hasManual = existingRecords.some(function(r) { return r.Source_Type === "MANUAL"; });
+  if (hasManual) {
+    Logger.log("DIEM_SO migration already done previously. Skipping to prevent duplicate records.");
+    return;
+  }
+  
+  var diemSoRecords = [];
+  try {
+    diemSoRecords = getSheetData("DIEM_SO");
+  } catch (e) {
+    Logger.log("DIEM_SO sheet not found or empty: " + e.toString());
+    return;
+  }
+  
+  if (diemSoRecords.length === 0) {
+    Logger.log("No records in DIEM_SO to migrate.");
+    return;
+  }
+  
+  var classes = [];
+  try {
+    classes = getSheetData("LOPHOC");
+  } catch(e) {}
+  
+  var classTeacherMap = {};
+  classes.forEach(function(c) {
+    classTeacherMap[c.ClassID] = c.TeacherID;
+  });
+  
+  var migratedCount = 0;
+  var todayStr = Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM-dd");
+  
+  diemSoRecords.forEach(function(ds) {
+    var teacherId = classTeacherMap[ds.ClassID] || "ADMIN_01";
+    var score = parseFloat(ds.Grade) || 0;
+    var resultId = "RES_" + Utilities.formatDate(new Date(), "GMT+7", "yyyyMMdd") + "_" + Math.floor(1000 + Math.random() * 9000);
+    
+    appendRowData("KET_QUA_HOC_TAP", {
+      ResultID: resultId,
+      StudentID: ds.StudentID,
+      ClassID: ds.ClassID,
+      AssignmentName: ds.AssignmentName,
+      Source_Type: "MANUAL",
+      AttemptID: "",
+      Score: score,
+      MaxScore: 10,
+      NormalizedScore: score,
+      Feedback: ds.Feedback || "",
+      RecordedBy: teacherId,
+      RecordedDate: todayStr,
+      AttemptNumber: 1,
+      IsBestAttempt: true
+    });
+    migratedCount++;
+  });
+  
+  Logger.log("Successfully migrated " + migratedCount + " records from DIEM_SO to KET_QUA_HOC_TAP.");
+}
+
+function testBackendPatch() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  Logger.log("--- STARTING BACKEND PATCH INTEGRATION TEST ---");
+  
+  var adminSession = { refId: "ADMIN_01", role: "ADMIN", fullName: "Admin Nguyễn" };
+  var teacherSession = { refId: "TCH_01", role: "GIAO_VIEN", fullName: "Cô Hà" };
+  var studentSession = { refId: "STD_01", role: "HOC_VIEN", fullName: "Nguyễn Bình An" };
+  
+  // 1. Create a folder
+  Logger.log("Testing createFolder...");
+  var folderRes = createFolder({
+    folderName: "Chuyên đề Toán học kiểm thử",
+    subject: "Toán",
+    grade: "Lớp 9",
+    level: "Chuyên",
+    sortOrder: 1,
+    description: "Thư mục dùng để chạy integration test."
+  }, adminSession);
+  var testFolderId = folderRes.data.folderId;
+  Logger.log("Created folder: " + testFolderId);
+  
+  // 2. Upload file PDF
+  Logger.log("Testing createFilePDF...");
+  var fileRes = createFilePDF({
+    folderId: testFolderId,
+    fileName: "Tài liệu Hình học Giải tích kiểm thử.pdf",
+    fileUrl: "https://drive.google.com/mock-file",
+    description: "Tài liệu học tập.",
+    isGlobal: false
+  }, teacherSession);
+  var testFileId = fileRes.data.fileId;
+  Logger.log("Uploaded file: " + testFileId);
+  
+  // 3. Create exam template
+  Logger.log("Testing createExamTemplate...");
+  var tempRes = createExamTemplate({
+    templateName: "Đề thi thử THPT QG Toán - TEST",
+    subject: "Toán",
+    grade: "Lớp 9",
+    totalDuration: 45,
+    maxScore: 10,
+    description: "Template dùng để test.",
+    sections: [
+      {
+        sectionName: "Trắc nghiệm",
+        questionType: "MCQ",
+        questionCount: 2,
+        pointsPerQuestion: 2.5
+      },
+      {
+        sectionName: "Đúng Sai",
+        questionType: "TRUE_FALSE",
+        questionCount: 1,
+        pointsPerQuestion: 5.0,
+        pointsPerSubQuestion: 1.25
+      }
+    ]
+  }, adminSession);
+  var testTemplateId = tempRes.data.templateId;
+  Logger.log("Created template: " + testTemplateId);
+  
+  // 4. Create Exam
+  Logger.log("Testing createExam...");
+  var examRes = createExam({
+    templateId: testTemplateId,
+    examName: "Đề khảo sát năng lực Toán 9 - TEST",
+    durationMinutes: 45,
+    shuffleQuestions: false,
+    shuffleOptions: false
+  }, teacherSession);
+  var testExamId = examRes.data.examId;
+  Logger.log("Created exam: " + testExamId);
+  
+  // 5. Parse LaTeX & Save questions
+  Logger.log("Testing parseLatexSection and saveExamSection...");
+  var templates = getExamTemplatesList();
+  var testTemplate = templates.find(function(t) { return t.templateId === testTemplateId; });
+  var mcqSection = testTemplate.sections.find(function(s) { return s.questionType === "MCQ"; });
+  var tfSection = testTemplate.sections.find(function(s) { return s.questionType === "TRUE_FALSE"; });
+  
+  var mcqQuestions = [
+    { questionContent: "Giải phương trình $x-3=0$", optionA: "1", optionB: "2", optionC: "3", optionD: "4", correctAnswer: "C", solution: "$x=3$" },
+    { questionContent: "Tính $2+3$", optionA: "4", optionB: "5", optionC: "6", optionD: "7", correctAnswer: "B", solution: "$2+3=5$" }
+  ];
+  saveExamSection({
+    examId: testExamId,
+    sectionTypeId: mcqSection.sectionTypeId,
+    questions: mcqQuestions
+  }, teacherSession);
+  
+  var tfQuestions = [
+    {
+      questionContent: "Cho tam giác ABC vuông tại A.",
+      subQuestions: [
+        { text: "AB vuông góc với AC", answer: "T" },
+        { text: "BC là cạnh huyền", answer: "T" },
+        { text: "Góc B luôn bằng 45 độ", answer: "F" },
+        { text: "Góc A là góc nhọn", answer: "F" }
+      ],
+      correctAnswer: "",
+      solution: "Định nghĩa tam giác vuông."
+    }
+  ];
+  saveExamSection({
+    examId: testExamId,
+    sectionTypeId: tfSection.sectionTypeId,
+    questions: tfQuestions
+  }, teacherSession);
+  
+  // 6. Publish Exam
+  Logger.log("Testing publishExam...");
+  var pubRes = publishExam({ examId: testExamId }, teacherSession);
+  var testExamFileId = pubRes.data.fileId;
+  Logger.log("Published exam, file ID in storage: " + testExamFileId);
+  
+  // 7. Assign Exam to Class
+  Logger.log("Testing assignMaterialToClass...");
+  var assignRes = assignMaterialToClass({
+    classId: "CLS_01",
+    fileId: testExamFileId,
+    dueDate: "2026-07-15",
+    isVisible: true,
+    sortOrder: 1,
+    maxAttempts: 2
+  }, teacherSession);
+  var testLinkId = assignRes.data.linkId;
+  Logger.log("Assigned exam link: " + testLinkId);
+  
+  // 8. Start exam attempt
+  Logger.log("Testing startExam...");
+  var startRes = startExam("CLS_01", testExamId, studentSession);
+  var testAttemptId = startRes.attemptId;
+  Logger.log("Started attempt: " + testAttemptId);
+  
+  // 9. Save progress
+  Logger.log("Testing saveExamProgress...");
+  var questionsInAttempt = startRes.questions;
+  var mcq1 = questionsInAttempt.find(function(q) { return q.questionContent.indexOf("x-3") !== -1; });
+  var mcq2 = questionsInAttempt.find(function(q) { return q.questionContent.indexOf("2+3") !== -1; });
+  var tf1 = questionsInAttempt.find(function(q) { return q.questionContent.indexOf("tam giác ABC") !== -1; });
+  
+  saveExamProgress({
+    attemptId: testAttemptId,
+    answers: [
+      { questionId: mcq1.questionId, studentAnswer: "C" },
+      { questionId: mcq2.questionId, studentAnswer: "A" },
+      {
+        questionId: tf1.questionId,
+        subAnswers: [
+          { subIndex: 0, answer: "T" },
+          { subIndex: 1, answer: "T" },
+          { subIndex: 2, answer: "T" },
+          { subIndex: 3, answer: "T" }
+        ]
+      }
+    ]
+  }, studentSession);
+  
+  // 10. Submit exam and grade
+  Logger.log("Testing submitExam...");
+  var submitRes = submitExam({ attemptId: testAttemptId }, studentSession);
+  Logger.log("Submitted score: " + submitRes.data.totalScore + " / " + submitRes.data.maxScore);
+  if (submitRes.data.totalScore !== 5.0) {
+    Logger.log("WARNING: Score did not match expected 5.0! Got: " + submitRes.data.totalScore);
+  } else {
+    Logger.log("SUCCESS: Grading is correct (5.0 points)!");
+  }
+  
+  // 11. Dashboards and stats
+  Logger.log("Testing dashboards...");
+  var studentDash = getStudentResultDashboard("", studentSession);
+  Logger.log("Student uncompleted exams count: " + studentDash.uncompletedExams.length);
+  
+  var classDash = getClassResultDashboard("CLS_01", teacherSession);
+  Logger.log("Class students matrix row count: " + classDash.studentsMatrix.length);
+  
+  var stats = getAssignmentStatsData("CLS_01", "Đề khảo sát năng lực Toán 9 - TEST", teacherSession);
+  Logger.log("Assignment average score: " + stats.average);
+  
+  // 12. Cleanup test data
+  Logger.log("Cleaning up test data...");
+  deleteFolder(testFolderId, adminSession);
+  
+  var sSheet = ss.getSheetByName("EXAM_SECTION_TYPE");
+  if (sSheet && sSheet.getLastRow() > 1) {
+    var sRows = sSheet.getRange(1, 1, sSheet.getLastRow(), sSheet.getLastColumn()).getValues();
+    for (var r = sRows.length - 1; r >= 1; r--) {
+      if (sRows[r][sRows[0].indexOf("TemplateID")] === testTemplateId) sSheet.deleteRow(r + 1);
+    }
+  }
+  var tSheet = ss.getSheetByName("EXAM_TEMPLATE");
+  if (tSheet && tSheet.getLastRow() > 1) {
+    var tRows = tSheet.getRange(1, 1, tSheet.getLastRow(), tSheet.getLastColumn()).getValues();
+    for (var r = tRows.length - 1; r >= 1; r--) {
+      if (tRows[r][tRows[0].indexOf("TemplateID")] === testTemplateId) tSheet.deleteRow(r + 1);
+    }
+  }
+  
+  var qSheet = ss.getSheetByName("EXAM_QUESTION");
+  if (qSheet && qSheet.getLastRow() > 1) {
+    var qRows = qSheet.getRange(1, 1, qSheet.getLastRow(), qSheet.getLastColumn()).getValues();
+    for (var r = qRows.length - 1; r >= 1; r--) {
+      if (qRows[r][qRows[0].indexOf("ExamID")] === testExamId) qSheet.deleteRow(r + 1);
+    }
+  }
+  
+  var bSheet = ss.getSheetByName("EXAM_BANK");
+  if (bSheet && bSheet.getLastRow() > 1) {
+    var bRows = bSheet.getRange(1, 1, bSheet.getLastRow(), bSheet.getLastColumn()).getValues();
+    for (var r = bRows.length - 1; r >= 1; r--) {
+      if (bRows[r][bRows[0].indexOf("ExamID")] === testExamId) bSheet.deleteRow(r + 1);
+    }
+  }
+  
+  var fileSheet = ss.getSheetByName("FILE_HOC_LIEU");
+  if (fileSheet && fileSheet.getLastRow() > 1) {
+    var fRows = fileSheet.getRange(1, 1, fileSheet.getLastRow(), fileSheet.getLastColumn()).getValues();
+    for (var r = fRows.length - 1; r >= 1; r--) {
+      if (fRows[r][fRows[0].indexOf("ExamID")] === testExamId) fileSheet.deleteRow(r + 1);
+    }
+  }
+  var linkSheet = ss.getSheetByName("CLASS_MATERIAL_LINK");
+  if (linkSheet && linkSheet.getLastRow() > 1) {
+    var lRows = linkSheet.getRange(1, 1, linkSheet.getLastRow(), linkSheet.getLastColumn()).getValues();
+    for (var r = lRows.length - 1; r >= 1; r--) {
+      if (lRows[r][lRows[0].indexOf("LinkID")] === testLinkId) linkSheet.deleteRow(r + 1);
+    }
+  }
+  
+  var attSheet = ss.getSheetByName("EXAM_ATTEMPT");
+  if (attSheet && attSheet.getLastRow() > 1) {
+    var attRows = attSheet.getRange(1, 1, attSheet.getLastRow(), attSheet.getLastColumn()).getValues();
+    for (var r = attRows.length - 1; r >= 1; r--) {
+      if (attRows[r][attRows[0].indexOf("AttemptID")] === testAttemptId) attSheet.deleteRow(r + 1);
+    }
+  }
+  
+  var ansSheet = ss.getSheetByName("EXAM_ANSWER");
+  if (ansSheet && ansSheet.getLastRow() > 1) {
+    var ansRows = ansSheet.getRange(1, 1, ansSheet.getLastRow(), ansSheet.getLastColumn()).getValues();
+    for (var r = ansRows.length - 1; r >= 1; r--) {
+      if (ansRows[r][ansRows[0].indexOf("AttemptID")] === testAttemptId) ansSheet.deleteRow(r + 1);
+    }
+  }
+  
+  var kqSheet = ss.getSheetByName("KET_QUA_HOC_TAP");
+  if (kqSheet && kqSheet.getLastRow() > 1) {
+    var kqRows = kqSheet.getRange(1, 1, kqSheet.getLastRow(), kqSheet.getLastColumn()).getValues();
+    for (var r = kqRows.length - 1; r >= 1; r--) {
+      if (kqRows[r][kqRows[0].indexOf("AttemptID")] === testAttemptId) kqSheet.deleteRow(r + 1);
+    }
+  }
+  
+  Logger.log("--- INTEGRATION TEST FINISHED SUCCESSFULLY ---");
+}
+
+function setDriveFolderId() {
+  PropertiesService.getScriptProperties().setProperty("DRIVE_FOLDER_ID", "1XuteNkmavnx8WS5MHJwaXaD5KGjj1SiJ");
+  Logger.log("Đã cấu hình DRIVE_FOLDER_ID thành công: 1XuteNkmavnx8WS5MHJwaXaD5KGjj1SiJ");
 }
