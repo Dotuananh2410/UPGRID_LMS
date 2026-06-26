@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { Suspense } from "react";
 import { AuthProvider } from "@/context/AuthContext";
 import Sidebar from "@/components/Sidebar";
 
@@ -17,7 +18,9 @@ export default function RootLayout({
     <html lang="vi" className="h-full scroll-smooth">
       <body className="min-h-screen flex flex-col md:flex-row bg-neutral-50 dark:bg-neutral-950 text-neutral-900 dark:text-neutral-50">
         <AuthProvider>
-          <Sidebar />
+          <Suspense fallback={<div className="w-64 h-screen flex-shrink-0 bg-white dark:bg-neutral-950 border-r border-neutral-200 dark:border-neutral-800 hidden md:block"></div>}>
+            <Sidebar />
+          </Suspense>
           <div className="flex-1 flex flex-col min-h-screen min-w-0">
             <main className="flex-1 w-full flex flex-col">{children}</main>
             <footer className="w-full border-t border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 py-6 text-center text-xs text-neutral-500 dark:text-neutral-400 mt-auto">

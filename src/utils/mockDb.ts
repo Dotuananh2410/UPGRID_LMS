@@ -652,7 +652,7 @@ export async function executeMockAction(action: string, params: any): Promise<an
             QuestionType: s.questionType || "MCQ",
             QuestionCount: sCount,
             PointsPerQuestion: sPoints,
-            PointsPerSubQuestion: "",
+            PointsPerSubQuestion: 0,
             SortOrder: idx + 1,
             AIParsePrompt: ""
           });
