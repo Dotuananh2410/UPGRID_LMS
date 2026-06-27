@@ -67,6 +67,13 @@ export default function TeacherTraining({ classId, teacherId, activeClass }: Tea
   const [newFolderDescription, setNewFolderDescription] = useState("");
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
 
+  // Custom Topic Form states
+  const [showAddCustomTopicInline, setShowAddCustomTopicInline] = useState(false);
+  const [newCustomTopicName, setNewCustomTopicName] = useState("");
+  const [isAddingCustomTopic, setIsAddingCustomTopic] = useState(false);
+  const [editingTopicId, setEditingTopicId] = useState<string | null>(null);
+  const [editingTopicName, setEditingTopicName] = useState("");
+
   // PDF Sub-tab state
   const [activePdfSubTab, setActivePdfSubTab] = useState<"drive" | "manual">("drive");
 
@@ -237,6 +244,59 @@ export default function TeacherTraining({ classId, teacherId, activeClass }: Tea
       showMessage("error", err.message || "Lỗi nhập nhanh học liệu.");
     } finally {
       setIsSavingPDF(false);
+    }
+  };
+
+  // Add custom topic box manually
+  const handleAddCustomTopic = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCustomTopicName.trim()) {
+      showMessage("error", "Vui lòng nhập tên chủ đề!");
+      return;
+    }
+    setIsAddingCustomTopic(true);
+    try {
+      await requestGas("addClassCustomTopic", {
+        method: "POST",
+        body: {
+          classId: classId,
+          topicName: newCustomTopicName.trim()
+        }
+      });
+      showMessage("success", `Thêm chủ đề "${newCustomTopicName}" thành công!`);
+      setNewCustomTopicName("");
+      setShowAddCustomTopicInline(false);
+      mutateProgress();
+    } catch (err: any) {
+      showMessage("error", err.message || "Không thể thêm chủ đề.");
+    } finally {
+      setIsAddingCustomTopic(false);
+    }
+  };
+
+  const handleDeleteCustomTopic = async (progressId: string, topicName: string) => {
+    if (!confirm(`Bạn có chắc muốn xoá chủ đề "${topicName}" và TẤT CẢ học liệu bên trong không?`)) return;
+    try {
+      await requestGas("deleteClassCustomTopic", { method: "POST", body: { classId, progressId, topicName } });
+      mutateProgress();
+      mutateMaterials();
+      showMessage("success", `Đã xóa chủ đề "${topicName}"`);
+    } catch(err: any) {
+      showMessage("error", err.message || "Không thể xóa chủ đề.");
+    }
+  };
+
+  const handleRenameCustomTopic = async (progressId: string, oldName: string) => {
+    if (!editingTopicName.trim() || editingTopicName === oldName) { setEditingTopicId(null); return; }
+    try {
+      await requestGas("renameClassCustomTopic", { method: "POST", body: { classId, progressId, oldTopicName: oldName, newTopicName: editingTopicName } });
+      mutateProgress();
+      mutateMaterials();
+      showMessage("success", `Đã đổi tên chủ đề thành "${editingTopicName}"`);
+    } catch(err: any) {
+      showMessage("error", err.message || "Không thể đổi tên chủ đề.");
+    } finally { 
+      setEditingTopicId(null); 
     }
   };
 
@@ -553,15 +613,50 @@ export default function TeacherTraining({ classId, teacherId, activeClass }: Tea
                   </p>
                 </div>
                 
-                <button
-                  onClick={handleSaveProgress}
-                  disabled={isSavingProgress || classProgress.length === 0}
-                  className="px-3.5 py-2 text-[11px] font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md transition-all cursor-pointer flex items-center gap-1.5 font-sans"
-                >
-                  {isSavingProgress ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-4 h-4" />}
-                  Lưu tiến độ lớp
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowAddCustomTopicInline(!showAddCustomTopicInline)}
+                    className="px-3.5 py-2 text-[11px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 font-sans"
+                  >
+                    <PlusCircle className="w-4 h-4" />
+                    Thêm chủ đề mới
+                  </button>
+                  <button
+                    onClick={handleSaveProgress}
+                    disabled={isSavingProgress || classProgress.length === 0}
+                    className="px-3.5 py-2 text-[11px] font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md transition-all cursor-pointer flex items-center gap-1.5 font-sans"
+                  >
+                    {isSavingProgress ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-4 h-4" />}
+                    Lưu tiến độ lớp
+                  </button>
+                </div>
               </div>
+
+              {showAddCustomTopicInline && (
+                <div className="bg-white dark:bg-neutral-900 border border-blue-200 dark:border-blue-900 p-4 rounded-xl shadow-sm mb-4 animate-fade-in">
+                  <form onSubmit={handleAddCustomTopic} className="flex items-end gap-3">
+                    <div className="flex-1">
+                      <label className="block text-[10px] font-bold text-neutral-500 uppercase mb-1.5">Tên chủ đề mới</label>
+                      <input
+                        type="text"
+                        value={newCustomTopicName}
+                        onChange={(e) => setNewCustomTopicName(e.target.value)}
+                        placeholder="Nhập tên chủ đề/chuyên đề..."
+                        className="w-full text-xs p-2.5 bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-semibold text-neutral-900 dark:text-white"
+                        autoFocus
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={isAddingCustomTopic || !newCustomTopicName.trim()}
+                      className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-colors disabled:opacity-50 flex items-center gap-2 h-[42px]"
+                    >
+                      {isAddingCustomTopic ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                      Thêm
+                    </button>
+                  </form>
+                </div>
+              )}
 
               {loadingProgress ? (
                 <div className="py-20 text-center text-neutral-400 font-sans font-bold flex flex-col items-center justify-center gap-2">
@@ -588,26 +683,53 @@ export default function TeacherTraining({ classId, teacherId, activeClass }: Tea
                         {/* Folder Header details */}
                         <div className="flex justify-between items-start gap-2.5">
                           <div className="min-w-0 flex-1">
-                            <p className="font-bold text-neutral-850 dark:text-neutral-100 text-sm truncate" title={prog.topicName}>{prog.topicName}</p>
+                            {editingTopicId === prog.progressId ? (
+                              <input 
+                                type="text"
+                                autoFocus
+                                value={editingTopicName}
+                                onChange={(e) => setEditingTopicName(e.target.value)}
+                                onBlur={() => handleRenameCustomTopic(prog.progressId, prog.topicName)}
+                                onKeyDown={(e) => e.key === 'Enter' && handleRenameCustomTopic(prog.progressId, prog.topicName)}
+                                className="w-full font-bold text-sm bg-white dark:bg-neutral-800 border border-blue-400 rounded px-1.5 py-0.5 outline-none focus:ring-2 focus:ring-blue-500/50"
+                              />
+                            ) : (
+                              <p 
+                                className="font-bold text-neutral-850 dark:text-neutral-100 text-sm truncate cursor-text" 
+                                title="Double click để sửa tên"
+                                onDoubleClick={() => { setEditingTopicId(prog.progressId); setEditingTopicName(prog.topicName); }}
+                              >
+                                {prog.topicName}
+                              </p>
+                            )}
                             <span className="text-[10px] text-neutral-400 font-mono font-semibold">Cập nhật: {prog.lastUpdated || "—"}</span>
                           </div>
 
-                          <select
-                            value={edit.status}
-                            onChange={(e) => {
-                              const newStatus = e.target.value;
-                              const newPercent = newStatus === "Đã dạy" ? 100 : newStatus === "Chưa dạy" ? 0 : edit.progressPercent;
-                              setProgressEdits(prev => ({
-                                ...prev,
-                                [prog.progressId]: { progressPercent: newPercent, status: newStatus }
-                              }));
-                            }}
-                            className="px-2 py-1 border rounded-lg bg-neutral-50 dark:bg-neutral-950 border-neutral-250 dark:border-neutral-750 font-bold scale-90"
-                          >
-                            <option value="Chưa dạy">Chưa dạy</option>
-                            <option value="Đang dạy">Đang dạy</option>
-                            <option value="Đã dạy">Đã dạy</option>
-                          </select>
+                          <div className="flex items-center gap-1.5">
+                            <select
+                              value={edit.status}
+                              onChange={(e) => {
+                                const newStatus = e.target.value;
+                                const newPercent = newStatus === "Đã dạy" ? 100 : newStatus === "Chưa dạy" ? 0 : edit.progressPercent;
+                                setProgressEdits(prev => ({
+                                  ...prev,
+                                  [prog.progressId]: { progressPercent: newPercent, status: newStatus }
+                                }));
+                              }}
+                              className="px-2 py-1 border rounded-lg bg-neutral-50 dark:bg-neutral-950 border-neutral-250 dark:border-neutral-750 font-bold scale-90"
+                            >
+                              <option value="Chưa dạy">Chưa dạy</option>
+                              <option value="Đang dạy">Đang dạy</option>
+                              <option value="Đã dạy">Đã dạy</option>
+                            </select>
+                            <button 
+                              onClick={() => handleDeleteCustomTopic(prog.progressId, prog.topicName)} 
+                              className="p-1.5 text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
+                              title="Xóa chủ đề"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         </div>
 
                         {/* Slider percent */}

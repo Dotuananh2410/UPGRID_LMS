@@ -25,25 +25,29 @@ function AdminPageContent() {
   }
 
   // Fetch lists via SWR
-  const { data: students = [], error: errStd, mutate: mutateStd } = useSWR("getStudents", () => 
+  const { data: stdData, error: errStd, mutate: mutateStd } = useSWR("getStudents", () => 
     requestGas<Student[]>("getStudents")
   );
+  const students = stdData || [];
   
-  const { data: teachers = [], error: errTch, mutate: mutateTch } = useSWR("getTeachers", () => 
+  const { data: tchData, error: errTch, mutate: mutateTch } = useSWR("getTeachers", () => 
     requestGas<Teacher[]>("getTeachers")
   );
+  const teachers = tchData || [];
   
-  const { data: classes = [], error: errCls, mutate: mutateCls } = useSWR("getClasses", () => 
+  const { data: clsData, error: errCls, mutate: mutateCls } = useSWR("getClasses", () => 
     requestGas<Class[]>("getClasses")
   );
+  const classes = clsData || [];
 
-  const { data: allFolders = [], mutate: mutateFolders } = useSWR(
+  const { data: folderData, mutate: mutateFolders } = useSWR(
     activeTab === "materials" ? "getFolders" : null,
     () => requestGas<any[]>("getFolders")
   );
+  const allFolders = folderData || [];
 
   // Loading States
-  const loading = !errStd && !students.length && !errTch && !teachers.length && !errCls && !classes.length;
+  const loading = (stdData === undefined && !errStd) || (tchData === undefined && !errTch) || (clsData === undefined && !errCls);
 
   // Form States & Loading Statuses
   const [submittingStd, setSubmittingStd] = useState(false);

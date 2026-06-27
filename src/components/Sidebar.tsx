@@ -20,6 +20,11 @@ export const Sidebar: React.FC = () => {
   const searchParams = useSearchParams();
   const router = useRouter();
 
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [isMobileOpen, setIsMobileOpen] = useState(false);
 
@@ -148,7 +153,13 @@ export const Sidebar: React.FC = () => {
 
       {/* Navigation list */}
       <div className="flex-1 flex flex-col min-h-0 overflow-y-auto pr-1">
-        {user?.role === "GIAO_VIEN" ? (
+        {!mounted ? (
+          <nav className="flex flex-col space-y-1.5 p-2 animate-pulse">
+            <div className="h-11 bg-neutral-100 dark:bg-neutral-800 rounded-xl w-full"></div>
+            <div className="h-11 bg-neutral-100 dark:bg-neutral-800 rounded-xl w-full"></div>
+            <div className="h-11 bg-neutral-100 dark:bg-neutral-800 rounded-xl w-full"></div>
+          </nav>
+        ) : user?.role === "GIAO_VIEN" ? (
           // TEACHER REPOSITORY LINKS STYLE
           <div className="space-y-4 font-semibold text-xs">
             {/* Class Repo Selector */}

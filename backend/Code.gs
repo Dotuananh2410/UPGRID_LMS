@@ -1,4 +1,4 @@
-/**
+﻿/**
  * UPGRID LMS - Google Apps Script Backend Web App API
  * Deploy this script as a Web App (Execute as: Me, Who has access: Anyone)
  */
@@ -216,6 +216,27 @@ function doPost(e) {
         
       case "updateClassProgress":
         result = updateClassProgressBatch(postData.classId, postData.records);
+        break;
+
+      case "addClassCustomTopic":
+        if (userSession.role !== "ADMIN" && userSession.role !== "GIAO_VIEN") {
+          return createJSONResponse({ success: false, error: "Forbidden: Admin or Teacher access required" });
+        }
+        result = addClassCustomTopic(postData, userSession);
+        break;
+
+      case "deleteClassCustomTopic":
+        if (userSession.role !== "ADMIN" && userSession.role !== "GIAO_VIEN") {
+          return createJSONResponse({ success: false, error: "Forbidden: Admin or Teacher access required" });
+        }
+        result = deleteClassCustomTopic(postData, userSession);
+        break;
+
+      case "renameClassCustomTopic":
+        if (userSession.role !== "ADMIN" && userSession.role !== "GIAO_VIEN") {
+          return createJSONResponse({ success: false, error: "Forbidden: Admin or Teacher access required" });
+        }
+        result = renameClassCustomTopic(postData, userSession);
         break;
 
       case "submitStudentFeedback":
@@ -1796,6 +1817,106 @@ function getClassProgress(classId) {
   }
 }
 
+function addClassCustomTopic(data, session) {
+  var classId = data.classId;
+  var topicName = data.topicName;
+  if (!classId || !topicName) throw new Error("Thiếu classId hoặc topicName");
+
+  var progressId = "PRG_" + Utilities.formatDate(new Date(), "GMT+7", "yyyyMMdd") + "_" + Math.floor(1000 + Math.random() * 9000);
+  var dateStr = Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM-dd");
+
+  appendRowData("TIEN_DO_LOP_HOC", {
+    ProgressID: progressId,
+    ClassID: classId,
+    TopicName: topicName,
+    ProgressPercent: 0,
+    Status: "Chưa dạy",
+    LastUpdated: dateStr
+  });
+
+  return { success: true, data: { progressId: progressId, topicName: topicName } };
+}
+
+function deleteClassCustomTopic(data, session) {
+  var classId = data.classId;
+  var progressId = data.progressId;
+  var topicName = data.topicName;
+  if (!classId || !progressId) throw new Error("Thiếu classId hoặc progressId");
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  
+  // Xóa dòng trong TIEN_DO_LOP_HOC
+  var progressSheet = ss.getSheetByName("TIEN_DO_LOP_HOC");
+  var pRows = progressSheet.getRange(1, 1, progressSheet.getLastRow(), progressSheet.getLastColumn()).getValues();
+  var pIdxId = pRows[0].indexOf("ProgressID");
+  var pIdxClass = pRows[0].indexOf("ClassID");
+  
+  for (var r = pRows.length - 1; r >= 1; r--) {
+    if (pRows[r][pIdxId] === progressId && pRows[r][pIdxClass] === classId) {
+      progressSheet.deleteRow(r + 1);
+    }
+  }
+  
+  // Xóa các học liệu liên kết trong CLASS_MATERIAL_LINK
+  var linksSheet = ss.getSheetByName("CLASS_MATERIAL_LINK");
+  if (linksSheet && linksSheet.getLastRow() > 1 && topicName) {
+    var linksRows = linksSheet.getRange(1, 1, linksSheet.getLastRow(), linksSheet.getLastColumn()).getValues();
+    var idxLinkClassId = linksRows[0].indexOf("ClassID");
+    var idxLinkTopicName = linksRows[0].indexOf("TopicName");
+    
+    for (var i = linksRows.length - 1; i >= 1; i--) {
+      if (linksRows[i][idxLinkClassId] === classId && linksRows[i][idxLinkTopicName] === topicName) {
+        linksSheet.deleteRow(i + 1);
+      }
+    }
+  }
+
+  return { success: true };
+}
+
+function renameClassCustomTopic(data, session) {
+  var classId = data.classId;
+  var progressId = data.progressId;
+  var oldTopicName = data.oldTopicName;
+  var newTopicName = data.newTopicName;
+  if (!classId || !progressId || !newTopicName) throw new Error("Thiếu tham số");
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  
+  // Cập nhật tên trong TIEN_DO_LOP_HOC
+  var progressSheet = ss.getSheetByName("TIEN_DO_LOP_HOC");
+  var pRows = progressSheet.getRange(1, 1, progressSheet.getLastRow(), progressSheet.getLastColumn()).getValues();
+  var pIdxId = pRows[0].indexOf("ProgressID");
+  var pIdxClass = pRows[0].indexOf("ClassID");
+  var pIdxTopicName = pRows[0].indexOf("TopicName");
+  var pIdxLastUpdated = pRows[0].indexOf("LastUpdated");
+  
+  var dateStr = Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM-dd");
+  
+  for (var r = 1; r < pRows.length; r++) {
+    if (pRows[r][pIdxId] === progressId && pRows[r][pIdxClass] === classId) {
+      progressSheet.getRange(r + 1, pIdxTopicName + 1).setValue(newTopicName);
+      progressSheet.getRange(r + 1, pIdxLastUpdated + 1).setValue(dateStr);
+    }
+  }
+  
+  // Cập nhật tên trong CLASS_MATERIAL_LINK
+  var linksSheet = ss.getSheetByName("CLASS_MATERIAL_LINK");
+  if (linksSheet && linksSheet.getLastRow() > 1 && oldTopicName) {
+    var linksRows = linksSheet.getRange(1, 1, linksSheet.getLastRow(), linksSheet.getLastColumn()).getValues();
+    var idxLinkClassId = linksRows[0].indexOf("ClassID");
+    var idxLinkTopicName = linksRows[0].indexOf("TopicName");
+    
+    for (var i = 1; i < linksRows.length; i++) {
+      if (linksRows[i][idxLinkClassId] === classId && linksRows[i][idxLinkTopicName] === oldTopicName) {
+        linksSheet.getRange(i + 1, idxLinkTopicName + 1).setValue(newTopicName);
+      }
+    }
+  }
+
+  return { success: true };
+}
+
 function updateClassProgressBatch(classId, records) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName("TIEN_DO_LOP_HOC");
@@ -2863,13 +2984,15 @@ function parseLatexSection(data, session) {
   }
   
   var parsedQuestions = [];
-  var apiKey = "YOUR_GEMINI_API_KEY_HERE";
+  var apiKey = PropertiesService.getScriptProperties().getProperty("GEMINI_API_KEY") || "YOUR_GEMINI_API_KEY_HERE";
   
-  if (apiKey) {
+  if (apiKey && apiKey !== "YOUR_GEMINI_API_KEY_HERE") {
     try {
       var userMessage = "Phân tích đoạn LaTeX sau:\n\n" + latex;
       var aiResult = callGeminiAPI(apiKey, systemPrompt, userMessage);
-      parsedQuestions = JSON.parse(aiResult);
+      // Remove markdown backticks if Gemini returned them
+      var cleanJson = aiResult.replace(/^```json\n?/gi, "").replace(/\n?```$/g, "").trim();
+      parsedQuestions = JSON.parse(cleanJson);
     } catch (err) {
       Logger.log("Gemini API failed, falling back to regex: " + err.toString());
       parsedQuestions = fallbackParseLatex(latex, expectedCount);
@@ -4259,3 +4382,32 @@ function getAssignmentStatsData(classId, assignmentName, session) {
   };
 }
 
+
+function resetDatabase() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheets = ss.getSheets();
+  
+  // Danh s�ch c�c sheet KH�NG mu?n x�a (v� d?: T�i kho?n, H?c vi�n, Gi�o vi�n, v.v.)
+  var excludeSheets = ['TAI_KHOAN', 'HOC_VIEN', 'DANH_SACH_GIAO_VIEN'];
+  var clearedSheets = [];
+  
+  for (var i = 0; i < sheets.length; i++) {
+    var sheet = sheets[i];
+    var sheetName = sheet.getName();
+    
+    // N?u sheet n?m trong danh s�ch lo?i tr? th� b? qua
+    if (excludeSheets.indexOf(sheetName) !== -1) {
+      continue;
+    }
+    
+    var lastRow = sheet.getLastRow();
+    if (lastRow > 1) {
+      // X�a c�c h�ng t? d�ng 2 tr? di d? gi? l?i Header ? d�ng 1
+      sheet.deleteRows(2, lastRow - 1);
+      clearedSheets.push(sheetName);
+    }
+  }
+  
+  Logger.log('�� reset th�nh c�ng c�c sheet: ' + clearedSheets.join(', '));
+  return { success: true, message: '�� reset th�nh c�ng c�c sheet: ' + clearedSheets.join(', ') };
+}

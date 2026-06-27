@@ -82,17 +82,17 @@ export default function TeacherAttendance({
     if (activeStudents.length === 0) return;
     setSubmittingAttendance(true);
     try {
-      const recordsToSave = activeStudents.map(std => ({
-        studentId: std.studentId,
-        status: attendanceRecords[std.studentId] || "P"
-      }));
+      const recordsToSave: Record<string, string> = {};
+      activeStudents.forEach(std => {
+        recordsToSave[std.studentId] = attendanceRecords[std.studentId] || "P";
+      });
 
-      await requestGas("saveAttendance", {
+      await requestGas("markAttendance", {
         method: "POST",
         body: {
           classId,
           sessionNumber,
-          attendanceDate,
+          date: attendanceDate,
           records: recordsToSave
         }
       });
